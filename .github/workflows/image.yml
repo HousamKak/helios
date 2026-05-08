@@ -62,12 +62,12 @@ jobs:
       - name: Build image (cargo + stage + mkosi)
         # Single source of truth — distro/build-image.sh does cargo
         # build, staging into mkosi.skeleton/, and mkosi build with
-        # --repository-key-fetch=yes (needed on Ubuntu host where the
-        # RPM keyring lacks Fedora keys). Same script the server uses,
-        # so CI and bare-metal converge on one path.
-        # sudo because mkosi v25+ needs root for systemd-nsresourced
-        # sandboxing on unprivileged runners.
-        run: sudo bash distro/build-image.sh
+        # --repository-key-fetch=yes. Same script the server uses.
+        #
+        # `sudo env "PATH=$PATH"` preserves the runner's PATH (which
+        # contains ~/.cargo/bin from the rustup action) past sudo's
+        # secure_path. Required so cargo is found when the script runs.
+        run: sudo env "PATH=$PATH" bash distro/build-image.sh
 
       - name: Verify image
         run: |
