@@ -53,7 +53,7 @@ ln -sf ../helios-store.service \
 # ---------------------------------------------------------------------------
 log "Running mkosi build"
 cd "$DISTRO_DIR"
-mkosi --force build
+mkosi --repository-key-fetch=yes --force build
 
 log "Image built: $DISTRO_DIR/helios.raw"
 log "Boot it: cd distro && mkosi qemu"
