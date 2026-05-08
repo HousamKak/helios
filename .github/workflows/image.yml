@@ -58,34 +58,15 @@ jobs:
       - name: Verify mkosi version
         run: mkosi --version
 
-      - name: Build heliOS userland (release)
-        run: cargo build --workspace --release
-
-      - name: Stage userland into mkosi.skeleton
-        run: |
-          mkdir -p distro/mkosi.skeleton/usr/local/bin
-          mkdir -p distro/mkosi.skeleton/usr/lib/systemd/system/multi-user.target.wants
-          for bin in helios-events helios-store helios-mcp helios-shell helios; do
-              install -m 0755 "target/release/$bin" \
-                  "distro/mkosi.skeleton/usr/local/bin/$bin"
-          done
-          install -m 0644 distro/units/helios-events.service \
-              distro/mkosi.skeleton/usr/lib/systemd/system/helios-events.service
-          install -m 0644 distro/units/helios-store.service \
-              distro/mkosi.skeleton/usr/lib/systemd/system/helios-store.service
-          ln -sf ../helios-events.service \
-              distro/mkosi.skeleton/usr/lib/systemd/system/multi-user.target.wants/helios-events.service
-          ln -sf ../helios-store.service \
-              distro/mkosi.skeleton/usr/lib/systemd/system/multi-user.target.wants/helios-store.service
-
-      - name: Build disk image with mkosi
-        working-directory: distro
-        # mkosi v25+ uses systemd-nsresourced for sandboxing, which
-        # isn't accessible in the unprivileged runner; running mkosi
-        # as root via sudo gives it the capabilities it needs.
-        # mkosi preserves SUDO_UID, so output files end up owned by
-        # the runner user (not root) — subsequent steps can read them.
-        run: sudo mkosi --force build
+      - name: Build image (cargo + stage + mkosi)
+        # Single source of truth — distro/build-image.sh does cargo
+        # build, staging into mkosi.skeleton/, and mkosi build with
+        # --repository-key-fetch=yes (needed on Ubuntu host where the
+        # RPM keyring lacks Fedora keys). Same script the server uses,
+        # so CI and bare-metal converge on one path.
+        # sudo because mkosi v25+ needs root for systemd-nsresourced
+        # sandboxing on unprivileged runners.
+        run: sudo bash distro/build-image.sh
 
       - name: Verify image
         run: |
