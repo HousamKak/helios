@@ -30,15 +30,23 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
               python3-pip \
+              python3-cryptography \
               qemu-system-x86 \
               systemd-container \
               ovmf \
               squashfs-tools \
               dosfstools \
               e2fsprogs \
-              cryptsetup-bin
-          # Ubuntu's mkosi is too old; install the latest from PyPI.
-          pip install --user --break-system-packages mkosi
+              cryptsetup-bin \
+              dnf \
+              rpm
+
+      - name: Install mkosi from source
+        run: |
+          # mkosi's PyPI publishing is sporadic; install from upstream
+          # git, which always exists. pip handles the Python plumbing.
+          git clone --depth 1 https://github.com/systemd/mkosi.git /tmp/mkosi
+          pip install --user --break-system-packages /tmp/mkosi
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Verify mkosi version
