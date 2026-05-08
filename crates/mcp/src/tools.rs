@@ -145,8 +145,7 @@ mod tests {
 
     #[test]
     fn build_request_for_known_tool() {
-        let req =
-            build_store_request("helios_list_processes", &json!({"limit": 10})).unwrap();
+        let req = build_store_request("helios_list_processes", &json!({"limit": 10})).unwrap();
         assert!(matches!(
             req,
             helios_schema::ipc::StoreRequest::ListProcesses { limit: Some(10) }

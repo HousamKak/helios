@@ -19,10 +19,10 @@ use crate::db::SharedDb;
 
 /// Bind the socket and accept connections forever.
 pub async fn serve(socket_path: PathBuf, db: SharedDb) -> anyhow::Result<()> {
-    if let Some(parent) = socket_path.parent() {
-        if !parent.as_os_str().is_empty() {
-            tokio::fs::create_dir_all(parent).await.ok();
-        }
+    if let Some(parent) = socket_path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        tokio::fs::create_dir_all(parent).await.ok();
     }
     if socket_path.exists() {
         tokio::fs::remove_file(&socket_path).await?;
