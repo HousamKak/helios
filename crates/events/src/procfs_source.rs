@@ -32,12 +32,12 @@ pub struct ProcessSnapshot {
 
 /// Run the procfs poller until the broadcast channel is closed or an
 /// unrecoverable scan error occurs. Caller owns shutdown.
-pub async fn run(
-    tx: broadcast::Sender<SystemEvent>,
-    interval: Duration,
-) -> anyhow::Result<()> {
+pub async fn run(tx: broadcast::Sender<SystemEvent>, interval: Duration) -> anyhow::Result<()> {
     let mut last_scan: HashMap<i32, ProcessSnapshot> = scan_proc()?;
-    tracing::info!(initial_pids = last_scan.len(), "procfs source: initial scan complete");
+    tracing::info!(
+        initial_pids = last_scan.len(),
+        "procfs source: initial scan complete"
+    );
 
     loop {
         tokio::time::sleep(interval).await;
@@ -76,18 +76,9 @@ fn scan_proc() -> anyhow::Result<HashMap<i32, ProcessSnapshot>> {
         let Ok(proc) = proc_result else { continue };
         let Ok(stat) = proc.stat() else { continue };
 
-        let cmdline = proc
-            .cmdline()
-            .unwrap_or_default()
-            .join(" ");
-        let exe = proc
-            .exe()
-            .ok()
-            .and_then(|p| p.to_str().map(String::from));
-        let (uid, gid) = proc
-            .status()
-            .map(|s| (s.ruid, s.rgid))
-            .unwrap_or((0, 0));
+        let cmdline = proc.cmdline().unwrap_or_default().join(" ");
+        let exe = proc.exe().ok().and_then(|p| p.to_str().map(String::from));
+        let (uid, gid) = proc.status().map(|s| (s.ruid, s.rgid)).unwrap_or((0, 0));
 
         out.insert(
             stat.pid,

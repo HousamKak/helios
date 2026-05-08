@@ -35,12 +35,13 @@ async fn main() -> anyhow::Result<()> {
     use tracing_subscriber::EnvFilter;
 
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        )
         .init();
 
-    let (tx, mut rx) = broadcast::channel::<helios_schema::SystemEvent>(
-        helios_events::BROADCAST_CAPACITY,
-    );
+    let (tx, mut rx) =
+        broadcast::channel::<helios_schema::SystemEvent>(helios_events::BROADCAST_CAPACITY);
 
     // Spawn the procfs source as a background task.
     let source_tx = tx.clone();
@@ -80,7 +81,9 @@ async fn main() -> anyhow::Result<()> {
 fn print_event(event: &helios_schema::SystemEvent) {
     use helios_schema::EventPayload;
     match &event.payload {
-        EventPayload::ProcessExec { pid, comm, cmdline, .. } => {
+        EventPayload::ProcessExec {
+            pid, comm, cmdline, ..
+        } => {
             println!("[exec] pid={pid:<6} comm={comm:<16} cmd={cmdline}");
         }
         EventPayload::ProcessExit { pid, .. } => {
