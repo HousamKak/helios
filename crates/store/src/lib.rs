@@ -1,23 +1,27 @@
 //! heliOS entity store — library surface.
 //!
-//! Phase 0 stub. The real implementation persists `helios_schema` entities
-//! into SQLite (WAL + FTS5), runs the migrations from `helios_schema::migrations`,
-//! subscribes to `helios_events::SystemEvent` and projects them into rows.
+//! The store is the durable projection of the events bus. It runs the
+//! migrations from `helios_schema::migrations`, opens a SQLite database
+//! (WAL + foreign keys + FTS5), subscribes to the events bus over a
+//! Unix socket, projects each `SystemEvent` into rows, and exposes a
+//! typed query API on its own Unix socket.
 //!
-//! The store exposes:
-//!   * a typed Rust API (used by other userland crates)
-//!   * a Unix-socket query protocol (used by the compositor)
-//!   * MCP tools (used by Claude Code via `helios-mcp`)
+//! The daemon is the only writer to the SQLite file. Multiple
+//! subscribers can connect to the query socket and read concurrently.
 
-pub use helios_schema::migrations::MIGRATIONS;
+pub mod db;
+pub mod projector;
 
-/// Default on-disk location for the entity store. Lives under the user's
-/// runtime dir so a per-session DB is straightforward.
-pub const DEFAULT_DB_PATH: &str = "/var/lib/helios/store.sqlite";
+#[cfg(target_os = "linux")]
+pub mod events_client;
 
-/// Default Unix-socket the store listens on for typed queries.
-pub const DEFAULT_SOCKET_PATH: &str = "/run/helios/store.sock";
+#[cfg(target_os = "linux")]
+pub mod server;
 
-pub fn placeholder() -> &'static str {
-    "helios-store: phase-0 stub"
-}
+pub use helios_schema::ipc::{StoreRequest, StoreResponse, StoredEvent};
+
+/// Default on-disk path for the entity store's SQLite database.
+pub const DEFAULT_DB_PATH: &str = helios_schema::ipc::DEFAULT_STORE_DB_PATH;
+
+/// Default Unix-socket path the store listens on for typed queries.
+pub const DEFAULT_SOCKET_PATH: &str = helios_schema::ipc::DEFAULT_STORE_SOCKET;

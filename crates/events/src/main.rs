@@ -1,8 +1,8 @@
-//! heliOS events bus daemon — Phase 0.
+//! heliOS events bus daemon — Phase 1.
 //!
-//! Linux: spawns the procfs poller as a tokio task, consumes the
-//! broadcast channel, prints emitted events to stdout. This is the
-//! "look, it works" demo for the events bus.
+//! Linux: spawns the procfs poller as a tokio task, runs the Unix
+//! socket fanout for subscribers (helios-store and any future
+//! consumer), and prints emitted events to stdout for live debugging.
 //!
 //! Non-Linux: prints a stub message and exits non-zero. heliOS targets
 //! Linux exclusively past Phase 0; cross-platform is for the schema
@@ -52,10 +52,19 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
+    // Spawn the Unix socket fanout for external subscribers.
+    let server_tx = tx.clone();
+    let socket_path = helios_events::socket_server::socket_path_from_env();
+    tokio::spawn(async move {
+        if let Err(err) = helios_events::socket_server::serve(socket_path, server_tx).await {
+            tracing::error!(?err, "socket server crashed");
+        }
+    });
+
     tracing::info!(
         budget_per_sec = helios_events::TARGET_SUSTAINED_EVENTS_PER_SEC,
         poll_ms = helios_events::PROCFS_POLL_INTERVAL_MS,
-        "helios-events: phase-0 procfs source running. Ctrl-C to stop."
+        "helios-events: phase-1 procfs + socket fanout running. Ctrl-C to stop."
     );
 
     loop {

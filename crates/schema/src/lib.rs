@@ -15,6 +15,7 @@ pub mod canvas;
 pub mod entities;
 pub mod events;
 pub mod ids;
+pub mod ipc;
 pub mod migrations;
 
 // Re-export the high-traffic types at the crate root.

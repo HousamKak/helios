@@ -6,15 +6,18 @@
 //! it on a Unix seqpacket socket using `postcard` encoding.
 //!
 //! Phase 0 ships only the **procfs** source — a polling diff against
-//! `/proc` that emits `ProcessExec` and `ProcessExit` events. Coarse,
-//! polling-based, misses short-lived processes. Phase 1 replaces it
-//! with aya eBPF on `sched_process_exec`/`sched_process_exit` for
-//! kernel-level latency.
+//! `/proc` that emits `ProcessExec` and `ProcessExit` events. Phase 1
+//! adds the Unix socket fanout so the entity store can subscribe.
+//! Future phases replace procfs with aya eBPF on
+//! `sched_process_exec`/`sched_process_exit` for kernel-level latency.
 
 pub use helios_schema::{EventPayload, EventSource, SystemEvent};
 
 #[cfg(target_os = "linux")]
 pub mod procfs_source;
+
+#[cfg(target_os = "linux")]
+pub mod socket_server;
 
 /// v0.1 event-rate budget. See `PLAN.md` §4 and observability research.
 pub const TARGET_SUSTAINED_EVENTS_PER_SEC: usize = 10_000;
@@ -23,7 +26,7 @@ pub const BROADCAST_CAPACITY: usize = 16_384;
 pub const MPSC_FRONT_CAPACITY: usize = 4_096;
 
 /// Default Unix-socket path the bus listens on. Subscribers connect here.
-pub const DEFAULT_SOCKET_PATH: &str = "/run/helios/events.sock";
+pub const DEFAULT_SOCKET_PATH: &str = helios_schema::ipc::DEFAULT_EVENTS_SOCKET;
 
 /// Default polling interval for the procfs source. Phase 0 quality —
 /// half-second granularity is fine for "see the canvas update when I

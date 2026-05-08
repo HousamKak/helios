@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "Entity store daemon — SQLite-backed projection of the events bus, exposes typed queries over Unix-socket and MCP."
+description = "Entity store daemon — runs schema migrations, subscribes to the events bus, persists events into SQLite, exposes typed queries on a Unix socket."
 
 [[bin]]
 name = "helios-store"
@@ -15,18 +15,19 @@ path = "src/lib.rs"
 
 [dependencies]
 helios-schema.workspace = true
-helios-events.workspace = true
 
 tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+postcard.workspace = true
 thiserror.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 
-# Phase 1 dependencies — uncomment when persistence work begins.
-# rusqlite = { version = "0.32", features = ["bundled", "chrono", "serde_json"] }
-# refinery = { version = "0.8", features = ["rusqlite"] }
-# r2d2 = "0.8"
-# r2d2_sqlite = "0.24"
+# rusqlite bundled compiles SQLite from source so the binary is
+# self-contained — no system libsqlite3 dependency at runtime.
+rusqlite = { version = "0.32", features = ["bundled", "serde_json"] }
+
+[dev-dependencies]
+tempfile = "3"
