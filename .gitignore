@@ -42,5 +42,8 @@ tasks/
 # Origin draft — not for the public repo. Move to PLAN.md / docs as needed.
 raw discussion.txt
 
+# Windows / Cygwin / msys crash artifacts
+*.stackdump
+
 # Build helpers
 .cargo/config.toml.local
