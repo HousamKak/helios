@@ -44,10 +44,13 @@ jobs:
       - name: Install mkosi from source
         run: |
           # mkosi's PyPI publishing is sporadic; install from upstream
-          # git, which always exists. pip handles the Python plumbing.
+          # git, which always exists. Install system-wide via sudo so
+          # both the runner user (for --version checks) and root (for
+          # the actual build) can find it on PATH. Otherwise sudo's
+          # secure_path ignores ~/.local/bin and bombs with "command
+          # not found" at build time.
           git clone --depth 1 https://github.com/systemd/mkosi.git /tmp/mkosi
-          pip install --user --break-system-packages /tmp/mkosi
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          sudo pip install --break-system-packages /tmp/mkosi
 
       - name: Verify mkosi version
         run: mkosi --version
@@ -77,7 +80,9 @@ jobs:
         # mkosi v25+ uses systemd-nsresourced for sandboxing, which
         # isn't accessible in the unprivileged runner; running mkosi
         # as root via sudo gives it the capabilities it needs.
-        run: sudo --preserve-env=PATH mkosi --force build
+        # mkosi preserves SUDO_UID, so output files end up owned by
+        # the runner user (not root) — subsequent steps can read them.
+        run: sudo mkosi --force build
 
       - name: Verify image
         run: |
