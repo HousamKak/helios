@@ -68,7 +68,10 @@ pub enum StoreResponse {
         processes: Vec<Process>,
     },
     Process {
-        process: Option<Process>,
+        // Boxed: Process is ~280 bytes; without the Box every other
+        // variant of StoreResponse pays for that footprint
+        // (clippy::large_enum_variant).
+        process: Option<Box<Process>>,
     },
     Events {
         events: Vec<StoredEvent>,

@@ -1,0 +1,32 @@
+[Unit]
+Description=heliOS events bus daemon
+Documentation=https://github.com/HousamKak/helios
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/helios-events
+Restart=on-failure
+RestartSec=2
+StandardOutput=journal
+StandardError=journal
+
+# Per ADR 0002: telemetry stays local. The events bus reads kernel
+# state but never makes outbound network calls.
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+NoNewPrivileges=yes
+CapabilityBoundingSet=CAP_DAC_READ_SEARCH CAP_SYS_PTRACE
+ReadWritePaths=/run/helios
+
+# Owns /run/helios/events.sock
+RuntimeDirectory=helios
+RuntimeDirectoryMode=0755
+
+Environment=RUST_LOG=info
+Environment=HELIOS_EVENTS_SOCKET=/run/helios/events.sock
+
+[Install]
+WantedBy=multi-user.target

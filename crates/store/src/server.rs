@@ -130,10 +130,10 @@ fn handle_get_process(db: &SharedDb, pid: i32) -> anyhow::Result<StoreResponse> 
          FROM processes
          WHERE pid = ?1",
     )?;
-    let process = stmt
-        .query_row([pid], |row| Ok(row_to_process(row)))
-        .ok();
-    Ok(StoreResponse::Process { process })
+    let process = stmt.query_row([pid], |row| Ok(row_to_process(row))).ok();
+    Ok(StoreResponse::Process {
+        process: process.map(Box::new),
+    })
 }
 
 fn handle_list_recent_events(
@@ -294,7 +294,8 @@ fn row_to_process(row: &rusqlite::Row<'_>) -> helios_schema::Process {
 
 fn row_to_stored_event(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredEvent> {
     let payload_str: String = row.get(6)?;
-    let payload: serde_json::Value = serde_json::from_str(&payload_str).unwrap_or(serde_json::Value::Null);
+    let payload: serde_json::Value =
+        serde_json::from_str(&payload_str).unwrap_or(serde_json::Value::Null);
     Ok(StoredEvent {
         id: row.get(0)?,
         kind: row.get(1)?,
@@ -311,8 +312,7 @@ fn row_to_stored_event(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredEvent>
 
 fn row_to_canvas_entity(row: &rusqlite::Row<'_>) -> rusqlite::Result<helios_schema::CanvasEntity> {
     let attached_json: String = row.get(14)?;
-    let attached_applet_ids: Vec<String> =
-        serde_json::from_str(&attached_json).unwrap_or_default();
+    let attached_applet_ids: Vec<String> = serde_json::from_str(&attached_json).unwrap_or_default();
     let kind_str: String = row.get(2)?;
     Ok(helios_schema::CanvasEntity {
         id: row.get(0)?,

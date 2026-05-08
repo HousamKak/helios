@@ -12,16 +12,16 @@ path = "src/main.rs"
 
 [dependencies]
 helios-schema.workspace = true
-helios-events.workspace = true
 
-tokio.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 
-# Phase 1 dependencies (Linux-only).
+# Phase 2 dependencies (PAM session integration). Not needed for the
+# Phase 1 demo where helios-shell is exec'd directly by the user.
 # [target.'cfg(target_os = "linux")'.dependencies]
 # nix = "0.29"
 # pam-bindings = "0.1"

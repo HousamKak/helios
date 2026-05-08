@@ -61,7 +61,17 @@ pub fn project(conn: &Connection, event: &SystemEvent) -> anyhow::Result<()> {
                      started_at = excluded.started_at,
                      exited_at = NULL,
                      exit_code = NULL",
-                params![pid, ppid, cmdline, exe, comm, uid, gid, cgroup, event.timestamp],
+                params![
+                    pid,
+                    ppid,
+                    cmdline,
+                    exe,
+                    comm,
+                    uid,
+                    gid,
+                    cgroup,
+                    event.timestamp
+                ],
             )?;
         }
         EventPayload::ProcessExit { pid, exit_code } => {
@@ -128,7 +138,9 @@ mod tests {
         let conn = open_test_db();
         project(&conn, &exec_event(123, "bash")).unwrap();
         let comm: String = conn
-            .query_row("SELECT comm FROM processes WHERE pid = 123", [], |r| r.get(0))
+            .query_row("SELECT comm FROM processes WHERE pid = 123", [], |r| {
+                r.get(0)
+            })
             .unwrap();
         assert_eq!(comm, "bash");
     }
@@ -139,11 +151,9 @@ mod tests {
         project(&conn, &exec_event(456, "vim")).unwrap();
         project(&conn, &exit_event(456)).unwrap();
         let status: String = conn
-            .query_row(
-                "SELECT status FROM processes WHERE pid = 456",
-                [],
-                |r| r.get(0),
-            )
+            .query_row("SELECT status FROM processes WHERE pid = 456", [], |r| {
+                r.get(0)
+            })
             .unwrap();
         assert_eq!(status, "dead");
     }

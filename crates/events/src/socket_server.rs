@@ -23,10 +23,7 @@ use tokio::sync::broadcast;
 /// Run the socket fanout until the broadcast channel is closed or the
 /// listener errors fatally. Caller owns shutdown via dropping the
 /// broadcast::Sender.
-pub async fn serve(
-    socket_path: PathBuf,
-    tx: broadcast::Sender<SystemEvent>,
-) -> anyhow::Result<()> {
+pub async fn serve(socket_path: PathBuf, tx: broadcast::Sender<SystemEvent>) -> anyhow::Result<()> {
     if let Some(parent) = socket_path.parent() {
         if !parent.as_os_str().is_empty() {
             tokio::fs::create_dir_all(parent).await.ok();

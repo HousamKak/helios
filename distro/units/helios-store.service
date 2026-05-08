@@ -1,0 +1,36 @@
+[Unit]
+Description=heliOS entity store daemon
+Documentation=https://github.com/HousamKak/helios
+After=helios-events.service
+Requires=helios-events.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/helios-store
+Restart=on-failure
+RestartSec=2
+StandardOutput=journal
+StandardError=journal
+
+# Local state: SQLite database under /var/lib/helios.
+StateDirectory=helios
+StateDirectoryMode=0750
+
+# Shared runtime dir with the events daemon (sockets live there).
+RuntimeDirectory=helios
+RuntimeDirectoryMode=0755
+
+# Hardening
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+NoNewPrivileges=yes
+ReadWritePaths=/var/lib/helios /run/helios
+
+Environment=RUST_LOG=info
+Environment=HELIOS_EVENTS_SOCKET=/run/helios/events.sock
+Environment=HELIOS_STORE_SOCKET=/run/helios/store.sock
+Environment=HELIOS_STORE_DB=/var/lib/helios/store.sqlite
+
+[Install]
+WantedBy=multi-user.target
