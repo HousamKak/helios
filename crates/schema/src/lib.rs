@@ -11,17 +11,17 @@
 
 use serde::{Deserialize, Serialize};
 
-pub mod ids;
+pub mod canvas;
 pub mod entities;
 pub mod events;
-pub mod canvas;
+pub mod ids;
 pub mod migrations;
 
 // Re-export the high-traffic types at the crate root.
-pub use ids::{EntityId, generate_id};
+pub use canvas::*;
 pub use entities::*;
 pub use events::*;
-pub use canvas::*;
+pub use ids::{EntityId, generate_id};
 
 /// ISO-8601 UTC string. We deliberately do not use `chrono::DateTime<Utc>`
 /// at storage boundaries to keep parity with H's TEXT timestamps and

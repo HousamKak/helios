@@ -186,7 +186,7 @@ pub enum AppletCapability {
     RenderUi,
     /// Bind to one specific entity for its lifetime (e.g. terminal applet
     /// bound to a PTY, file-inspector bound to one file).
-    BindEntity { kind: String, id: EntityId },
+    BindEntity { entity_kind: String, id: EntityId },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

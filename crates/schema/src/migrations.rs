@@ -33,7 +33,11 @@ mod tests {
         assert!(!MIGRATIONS.is_empty());
         for m in MIGRATIONS {
             assert!(!m.name.is_empty(), "migration name must be non-empty");
-            assert!(!m.sql.is_empty(), "migration sql must be non-empty: {}", m.name);
+            assert!(
+                !m.sql.is_empty(),
+                "migration sql must be non-empty: {}",
+                m.name
+            );
         }
     }
 
