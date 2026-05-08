@@ -9,7 +9,9 @@
 //!   * dbus_source         — generic D-Bus system-bus signals
 //!   * journal_source      — systemd journal tail (via journalctl)
 //!   * network_source      — TCP connect/close from /proc/net/tcp{,6}
-//! plus the socket_server  — fanout over /run/helios/events.sock
+//!
+//! Plus the `socket_server` task that fans events out over
+//! `/run/helios/events.sock` to subscribers like `helios-store`.
 //!
 //! Non-Linux: prints a stub message and exits non-zero.
 

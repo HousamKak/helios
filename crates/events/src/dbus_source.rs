@@ -57,22 +57,13 @@ async fn run_once(tx: &broadcast::Sender<SystemEvent>) -> anyhow::Result<()> {
         };
 
         let header = message.header();
-        let sender = header
-            .sender()
-            .map(|s| s.to_string())
-            .unwrap_or_default();
-        let path = header
-            .path()
-            .map(|p| p.to_string())
-            .unwrap_or_default();
+        let sender = header.sender().map(|s| s.to_string()).unwrap_or_default();
+        let path = header.path().map(|p| p.to_string()).unwrap_or_default();
         let interface = header
             .interface()
             .map(|i| i.to_string())
             .unwrap_or_default();
-        let member = header
-            .member()
-            .map(|m| m.to_string())
-            .unwrap_or_default();
+        let member = header.member().map(|m| m.to_string()).unwrap_or_default();
 
         // Body parsing is type-dependent; for the generic stream we
         // emit a placeholder. Phase 2 typed proxies will populate
