@@ -27,6 +27,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - name: Install compositor system libraries
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+              libwayland-dev \
+              libxkbcommon-dev \
+              libudev-dev \
+              libgbm-dev \
+              libegl1-mesa-dev \
+              libinput-dev \
+              libdrm-dev \
+              libpixman-1-dev \
+              libseat-dev
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: helios-workspace
@@ -39,6 +52,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - name: Install compositor system libraries
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+              libwayland-dev \
+              libxkbcommon-dev \
+              libudev-dev \
+              libgbm-dev \
+              libegl1-mesa-dev \
+              libinput-dev \
+              libdrm-dev \
+              libpixman-1-dev \
+              libseat-dev
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: helios-workspace
@@ -53,6 +79,19 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+      - name: Install compositor system libraries
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+              libwayland-dev \
+              libxkbcommon-dev \
+              libudev-dev \
+              libgbm-dev \
+              libegl1-mesa-dev \
+              libinput-dev \
+              libdrm-dev \
+              libpixman-1-dev \
+              libseat-dev
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: helios-workspace

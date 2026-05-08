@@ -1,19 +1,12 @@
-//! heliOS Wayland compositor — Phase 2 scaffold.
+//! heliOS Wayland compositor — Phase 2 month-2.
 //!
-//! This binary is the canvas surface of the OS. Per
-//! `docs/research/01-compositor.md` and `PLAN.md` §6 (Phase 2):
-//!   * Smithay 0.7+ as the foundation
-//!   * niri as the 80% blueprint (custom GLSL shader for per-surface
-//!     world-to-screen matrix; smooth-zoom-between-snaps trick)
-//!   * GLES via `Smithay::GlesRenderer` for v1 (defer wgpu)
-//!   * XWayland support for legacy app integration
-//!   * Subscribes to `helios-events` and `helios-store` for the entity
-//!     graph; renders `canvas_entities` rows on each output
-//!
-//! Phase 2 month-1 deliverable: this binary boots, builds an empty
-//! `HeliosState`, builds a `RenderPlan` from it, logs both, exits.
-//! Smithay event loop arrives in month 2 once the host environment
-//! has libdrm-dev / libinput-dev / libxkbcommon-dev / libgbm-dev.
+//! Linux: opens a smithay-backed Wayland display, binds a Wayland
+//! socket via `add_socket_auto()`, runs a 3-second client dispatch
+//! loop, exits. No protocol globals are advertised yet — the
+//! compositor exists as a Wayland server but doesn't expose any
+//! protocol surface. Future commits add `CompositorState`,
+//! `XdgShellState`, `ShmState`, `SeatState`, the calloop event loop,
+//! `GlesRenderer`, and the canvas render pipeline.
 //!
 //! Linux-only past Phase 0. Windows / macOS builds emit a stub.
 
@@ -23,14 +16,15 @@ fn main() {
         "helios-comp must be built on Linux. \
          Use the schema/applet/cli crates from a Windows / macOS host; \
          compositor work requires a Linux dev environment with libdrm, \
-         libinput, libxkbcommon, libgbm, and libegl1-mesa."
+         libinput, libxkbcommon, libgbm, libegl1-mesa, and libwayland."
     );
     std::process::exit(2);
 }
 
 #[cfg(target_os = "linux")]
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<()> {
+    use smithay::reexports::wayland_server::Display;
+    use std::time::{Duration, Instant};
     use tracing_subscriber::EnvFilter;
 
     tracing_subscriber::fmt()
@@ -39,39 +33,43 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
+    tracing::info!("helios-comp: Phase 2 month-2 — wayland display alive, no globals yet");
+
+    let mut display: Display<helios_comp::WaylandState> = Display::new()?;
+    let socket = display.handle().add_socket_auto()?;
     tracing::info!(
-        "helios-comp: Phase 2 scaffold — smithay event loop not yet wired."
+        socket = %socket.to_string_lossy(),
+        "wayland socket bound"
     );
 
-    let state = helios_comp::HeliosState::new();
-    let plan = helios_comp::RenderPlan::build(&state);
+    let mut state = helios_comp::WaylandState::new();
 
     tracing::info!(
-        viewport_zoom = state.viewport.zoom,
-        viewport_w = state.viewport.screen_width,
-        viewport_h = state.viewport.screen_height,
-        placements = state.placement_count(),
-        plan_items = plan.item_count(),
-        "initial state + render plan built; exiting"
+        viewport_zoom = state.canvas.viewport.zoom,
+        viewport_w = state.canvas.viewport.screen_width,
+        viewport_h = state.canvas.viewport.screen_height,
+        placements = state.canvas.placement_count(),
+        "initial state ready"
     );
 
-    // Phase 2 month 2+: replace this with a smithay event loop. Expected
-    // structure (commented out so CI compiles without smithay deps):
-    //
-    //   let mut display: Display<HeliosState> = Display::new()?;
-    //   let socket_name = display.handle().add_socket_auto()?;
-    //   let mut event_loop = calloop::EventLoop::try_new()?;
-    //   let signal = event_loop.get_signal();
-    //   let mut state = HeliosState::new_with_display(&mut display)?;
-    //   register_input_sources(&mut event_loop, &mut state)?;
-    //   register_events_bus_listener(&mut event_loop, &mut state).await?;
-    //   register_store_subscriber(&mut event_loop, &mut state).await?;
-    //   register_xwayland(&mut event_loop, &mut state)?;
-    //   event_loop.run(None, &mut state, |s| {
-    //       redraw_if_dirty(s);
-    //       display.dispatch_clients(s).ok();
-    //       display.flush_clients().ok();
-    //   })?;
+    // Phase 2 month-2 dispatch loop: simple sleep-poll, just enough
+    // to let `wayland-info` and friends see the server alive. Phase
+    // 2 month-3 replaces this with a calloop event loop that's also
+    // wired to libinput and the events-bus subscriber.
+    let runtime = match std::env::var("HELIOS_COMP_LIFETIME_SECS") {
+        Ok(s) => s.parse().unwrap_or(3),
+        Err(_) => 3,
+    };
+    tracing::info!(seconds = runtime, "running wayland dispatch loop");
 
+    let start = Instant::now();
+    let lifetime = Duration::from_secs(runtime);
+    while start.elapsed() < lifetime {
+        display.dispatch_clients(&mut state)?;
+        display.flush_clients()?;
+        std::thread::sleep(Duration::from_millis(50));
+    }
+
+    tracing::info!("shutting down");
     Ok(())
 }

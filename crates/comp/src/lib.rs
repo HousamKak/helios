@@ -1,23 +1,23 @@
 //! heliOS compositor — library surface.
 //!
-//! Phase 2 scaffold. The compositor will eventually be a smithay-based
-//! Wayland server that renders the heliOS canvas: every entity in the
-//! store becomes a world-positioned scene-graph node, rendered through
-//! a viewport that pans + zooms with infinite resolution.
+//! Phase 2 month-1 (`canvas.rs` / `state.rs` / `render.rs`) locked the
+//! canvas math and the architectural seams. Phase 2 month-2 (this
+//! crate's current shape) adds a real smithay Wayland integration in
+//! `wayland.rs` and the `main.rs` binary that opens a Wayland socket.
 //!
-//! This crate is structured for the work that's coming, not the work
-//! that's done. Smithay protocol handlers, the GLES renderer, libinput,
-//! XWayland — all of those land in `state.rs` and a future `smithay/`
-//! submodule once the host environment can build them. For now we lock
-//! in the canvas math and the architectural seams.
-//!
-//! Per `docs/adr/0003-phase-2-compositor-scope.md` and `PLAN.md` §6
-//! Phase 2.
+//! Per `docs/adr/0003-phase-2-compositor-scope.md` and
+//! `PLAN.md` §6 Phase 2.
 
 pub mod canvas;
 pub mod render;
 pub mod state;
 
+#[cfg(target_os = "linux")]
+pub mod wayland;
+
 pub use canvas::{CanvasTransform, EntityPlacement, Viewport, WorldPoint};
 pub use render::{RenderItem, RenderItemKind, RenderPlan};
 pub use state::HeliosState;
+
+#[cfg(target_os = "linux")]
+pub use wayland::WaylandState;

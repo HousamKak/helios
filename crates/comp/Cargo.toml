@@ -26,20 +26,29 @@ anyhow.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 
-# Phase 2 backend deps — uncomment as compositor work begins.
-# Each adds system-library requirements at link time:
-#   smithay (with renderer_gl)  → libdrm-dev, libgbm-dev, libegl1-mesa-dev
-#   smithay (with backend_libinput) → libinput-dev, libudev-dev
-#   smithay (with xwayland)     → libxcb-dev
-#   wayland-server              → libwayland-dev
-# Until these are in CI's apt install list AND on the housam-server
-# host, the smithay integration code lives behind feature gates.
+# Phase 2 backend deps. Linux-only. Each adds system-library link
+# requirements the CI apt install step now covers (libwayland-dev,
+# libxkbcommon-dev, libudev-dev, libgbm-dev, libegl1-mesa-dev,
+# libinput-dev, libdrm-dev).
 #
-# [target.'cfg(target_os = "linux")'.dependencies]
-# smithay = { version = "0.7", features = ["renderer_gl", "backend_winit", "backend_libinput", "backend_drm", "desktop", "xwayland"] }
-# calloop = "0.14"
-# wayland-server = "0.31"
-# wayland-protocols = "0.32"
-# input = "0.9"
+# Feature set is deliberately narrow for the first wired commit:
+#   - desktop          → Space<Window>, scenegraph primitives
+#   - wayland_frontend → xdg-shell, shm, seat, output, data_device
+#   - backend_winit    → nested-Wayland iteration host (NoMachine path)
+#
+# Not yet pulled in:
+#   - backend_drm / backend_libinput → bare-metal session, lands when
+#     we have a working iteration loop on real hardware
+#   - renderer_gl → GLES rendering, lands alongside the first surface
+#     compositing pass
+#   - xwayland → legacy app support, Phase 2 month 4+
+
+[target.'cfg(target_os = "linux")'.dependencies]
+smithay = { version = "0.7", default-features = false, features = [
+    "desktop",
+    "wayland_frontend",
+    "backend_winit",
+] }
+calloop = "0.14"
 
 [dev-dependencies]
