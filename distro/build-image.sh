@@ -32,7 +32,7 @@ mkdir -p "$SKEL/usr/local/bin"
 mkdir -p "$SKEL/usr/lib/systemd/system"
 mkdir -p "$SKEL/var/lib/helios"
 
-for bin in helios-events helios-store helios-mcp helios-shell helios; do
+for bin in helios-events helios-store helios-mcp helios-shell helios helios-comp; do
     install -m 0755 "$REPO_ROOT/target/release/$bin" "$SKEL/usr/local/bin/$bin"
 done
 

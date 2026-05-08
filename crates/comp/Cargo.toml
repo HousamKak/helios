@@ -10,6 +10,9 @@ description = "heliOS Wayland compositor — Smithay-based, renders the canvas w
 name = "helios-comp"
 path = "src/main.rs"
 
+[lib]
+path = "src/lib.rs"
+
 [dependencies]
 helios-schema.workspace = true
 helios-events.workspace = true
@@ -17,15 +20,26 @@ helios-store.workspace = true
 
 tokio.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 
-# Phase 2 dependencies — Linux-only. Uncomment as compositor work begins.
+# Phase 2 backend deps — uncomment as compositor work begins.
+# Each adds system-library requirements at link time:
+#   smithay (with renderer_gl)  → libdrm-dev, libgbm-dev, libegl1-mesa-dev
+#   smithay (with backend_libinput) → libinput-dev, libudev-dev
+#   smithay (with xwayland)     → libxcb-dev
+#   wayland-server              → libwayland-dev
+# Until these are in CI's apt install list AND on the housam-server
+# host, the smithay integration code lives behind feature gates.
+#
 # [target.'cfg(target_os = "linux")'.dependencies]
-# smithay = { version = "0.7", features = ["renderer_gl", "backend_drm", "backend_libinput", "xwayland", "desktop"] }
+# smithay = { version = "0.7", features = ["renderer_gl", "backend_winit", "backend_libinput", "backend_drm", "desktop", "xwayland"] }
+# calloop = "0.14"
 # wayland-server = "0.31"
 # wayland-protocols = "0.32"
-# calloop = "0.14"
 # input = "0.9"
+
+[dev-dependencies]
