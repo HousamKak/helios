@@ -34,7 +34,6 @@ jobs:
               qemu-system-x86 \
               systemd-container \
               systemd-ukify \
-              systemd-boot-tools \
               ovmf \
               squashfs-tools \
               dosfstools \
