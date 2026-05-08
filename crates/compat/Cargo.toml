@@ -1,0 +1,17 @@
+[package]
+name = "helios-compat"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Legacy app compatibility — XWayland glue, Flatpak provisioning, entity registration for non-applet processes."
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+helios-schema.workspace = true
+
+serde.workspace = true
+thiserror.workspace = true
+tracing.workspace = true

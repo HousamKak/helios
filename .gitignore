@@ -1,0 +1,46 @@
+# Cargo / Rust
+target/
+Cargo.lock.bak
+**/*.rs.bk
+
+# mkosi / distro build artifacts
+mkosi.output/
+mkosi.cache/
+mkosi.builddir/
+mkosi.workspace/
+*.raw
+*.iso
+*.efi
+
+# Editors / IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# OS / shell noise
+Thumbs.db
+desktop.ini
+.bash_history
+
+# Local dev secrets
+.env
+.env.local
+*.pem
+*.key
+
+# Sub-agent transcripts (overflow guard — never commit)
+tasks/
+*.jsonl
+
+# Local Claude / Codex / etc. session caches
+.claude/
+.cursor/
+
+# Origin draft — not for the public repo. Move to PLAN.md / docs as needed.
+raw discussion.txt
+
+# Build helpers
+.cargo/config.toml.local

@@ -1,0 +1,31 @@
+[package]
+name = "helios-comp"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "heliOS Wayland compositor — Smithay-based, renders the canvas world. The defining surface of the OS."
+
+[[bin]]
+name = "helios-comp"
+path = "src/main.rs"
+
+[dependencies]
+helios-schema.workspace = true
+helios-events.workspace = true
+helios-store.workspace = true
+
+tokio.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+# Phase 2 dependencies — Linux-only. Uncomment as compositor work begins.
+# [target.'cfg(target_os = "linux")'.dependencies]
+# smithay = { version = "0.7", features = ["renderer_gl", "backend_drm", "backend_libinput", "xwayland", "desktop"] }
+# wayland-server = "0.31"
+# wayland-protocols = "0.32"
+# calloop = "0.14"
+# input = "0.9"

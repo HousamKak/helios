@@ -1,0 +1,27 @@
+[package]
+name = "helios-shell"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Login session — Claude Code as the user shell, with the events bus, store, and MCP gateway wired in."
+
+[[bin]]
+name = "helios-shell"
+path = "src/main.rs"
+
+[dependencies]
+helios-schema.workspace = true
+helios-events.workspace = true
+
+tokio.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+# Phase 1 dependencies (Linux-only).
+# [target.'cfg(target_os = "linux")'.dependencies]
+# nix = "0.29"
+# pam-bindings = "0.1"

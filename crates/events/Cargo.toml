@@ -1,0 +1,37 @@
+[package]
+name = "helios-events"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "System-events bus daemon — eBPF + procfs + zbus + journal + netlink → tokio broadcast → Unix-socket fanout."
+
+[[bin]]
+name = "helios-events"
+path = "src/main.rs"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+helios-schema.workspace = true
+
+tokio.workspace = true
+serde.workspace = true
+postcard.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+# Phase 1 dependencies — uncomment as each source is implemented.
+# (Linux-only; gated on target_os = "linux" when added.)
+# aya = "0.13"
+# aya-ebpf = "0.1"
+# zbus = { version = "5", default-features = false, features = ["tokio"] }
+# zbus_systemd = "0.25"
+# rtnetlink = "0.14"
+# netlink-packet-sock-diag = "0.4"
+# nix = { version = "0.29", features = ["fanotify"] }
+# procfs = "0.16"
+# systemd = "0.10"  # journald tail

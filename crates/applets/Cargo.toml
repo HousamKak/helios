@@ -1,0 +1,31 @@
+[package]
+name = "helios-applets"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Applet runtime daemon — Wasmtime + pooling allocator + capability gating, drives applet UI through the host:ui/canvas WIT world."
+
+[[bin]]
+name = "helios-applets"
+path = "src/main.rs"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+helios-schema.workspace = true
+helios-events.workspace = true
+
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+# Phase 3 dependencies — uncomment when applet runtime work begins.
+# wasmtime = { version = "30", features = ["component-model", "pooling-allocator"] }
+# wasmtime-wasi = "30"
+# wit-bindgen = "0.34"

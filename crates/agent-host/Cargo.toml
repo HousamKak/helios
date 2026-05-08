@@ -1,0 +1,24 @@
+[package]
+name = "helios-agent-host"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Skills / hooks / plugins / compaction / memory-extractor / autoDream — services Claude Code consumes via MCP."
+
+[[bin]]
+name = "helios-agent-host"
+path = "src/main.rs"
+
+[dependencies]
+helios-schema.workspace = true
+helios-events.workspace = true
+helios-store.workspace = true
+
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true

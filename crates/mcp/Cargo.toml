@@ -1,0 +1,26 @@
+[package]
+name = "helios-mcp"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "MCP gateway — exposes the entity store, memory, tasks, blackboard, files, and process control as MCP tools for Claude Code."
+
+[[bin]]
+name = "helios-mcp"
+path = "src/main.rs"
+
+[dependencies]
+helios-schema.workspace = true
+helios-store.workspace = true
+
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+# Phase 1 dependencies — official rmcp once API stabilises, or hand-rolled.
+# rmcp = "0.2"

@@ -1,0 +1,56 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/schema",
+    "crates/events",
+    "crates/store",
+    "crates/mcp",
+    "crates/applets",
+    "crates/ui-wit",
+    "crates/comp",
+    "crates/shell",
+    "crates/agent-host",
+    "crates/compat",
+]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2024"
+authors = ["Housam <housam.kak20@gmail.com>"]
+license = "AGPL-3.0-only"
+repository = "https://github.com/housam/helios"
+rust-version = "1.85"
+
+[workspace.dependencies]
+# Shared async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+postcard = { version = "1", features = ["use-std"] }
+
+# Errors & logging
+thiserror = "2"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Time, IDs
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+
+# Internal crate refs (used by other crates in this workspace)
+helios-schema = { path = "crates/schema" }
+helios-events = { path = "crates/events" }
+helios-store = { path = "crates/store" }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+opt-level = 3
+strip = "symbols"
+
+[profile.dev]
+opt-level = 0
+debug = true

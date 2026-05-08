@@ -1,0 +1,87 @@
+// heliOS canvas applet world — Phase 0 sketch.
+//
+// This is the host-defined widget vocabulary applets render into. The
+// applet does NOT own a GPU surface; it emits a tree, and the heliOS
+// compositor (via the applet runtime) draws it on the canvas with one
+// shared font atlas and one render pass.
+//
+// Status: schematic. Field shapes are placeholders to validate compilation
+// of the wit toolchain. The real vocabulary lands in Phase 3 alongside the
+// first three baseline applets (terminal, file-inspector, log-stream).
+
+package host:ui@0.0.1;
+
+interface canvas {
+    record point { x: f64, y: f64 }
+    record size { width: f64, height: f64 }
+    record color { r: u8, g: u8, b: u8, a: u8 }
+
+    record text-spec {
+        content: string,
+        color: color,
+        size: f64,
+    }
+    record button-spec {
+        label: string,
+        on-click-handle: u64,
+    }
+    record panel-spec {
+        padding: f64,
+        gap: f64,
+        children: list<widget>,
+    }
+    record list-spec {
+        items: list<widget>,
+    }
+    record scroll-spec {
+        child-handle: u64,
+        max-height: f64,
+    }
+
+    variant widget {
+        text(text-spec),
+        button(button-spec),
+        panel(panel-spec),
+        list(list-spec),
+        scroll(scroll-spec),
+    }
+
+    /// Render the applet's current UI tree. Host owns the render budget;
+    /// repeated calls coalesce.
+    render: func(root: widget);
+
+    /// Bounds the host has assigned to this applet on the canvas.
+    bounds: func() -> tuple<point, size>;
+}
+
+interface events {
+    record event {
+        kind: string,
+        body-json: string,
+    }
+
+    /// Subscribe to a topic on the system events bus.
+    subscribe: func(topic: string) -> u64;
+
+    /// Drain the next event for a subscription. None if empty.
+    next: func(handle: u64) -> option<event>;
+
+    /// Drop a subscription.
+    cancel: func(handle: u64);
+}
+
+interface tools {
+    /// Call an MCP tool exposed by helios-mcp. Args + result are JSON.
+    call: func(name: string, args-json: string) -> result<string, string>;
+}
+
+world canvas-applet {
+    import canvas;
+    import events;
+    import tools;
+
+    /// Applet entry point — host calls this once on instantiation. The
+    /// applet should wire its event loop and call `canvas.render` on
+    /// state changes.
+    export run: func();
+}

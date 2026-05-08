@@ -1,0 +1,15 @@
+[package]
+name = "helios-ui-wit"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Canonical WIT world for heliOS applets — the `host:ui/canvas` widget vocabulary plus events and tools imports."
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+# This crate currently only embeds the WIT files. Once `wit-component` /
+# `wasmtime::component::bindgen!` is wired in Phase 3, generated bindings
+# go here.
