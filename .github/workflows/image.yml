@@ -74,7 +74,10 @@ jobs:
 
       - name: Build disk image with mkosi
         working-directory: distro
-        run: mkosi --force build
+        # mkosi v25+ uses systemd-nsresourced for sandboxing, which
+        # isn't accessible in the unprivileged runner; running mkosi
+        # as root via sudo gives it the capabilities it needs.
+        run: sudo --preserve-env=PATH mkosi --force build
 
       - name: Verify image
         run: |
