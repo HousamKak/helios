@@ -74,7 +74,7 @@ Per `docs/research/03-wasm-applets.md`. With pixel rendering each applet ships i
 ## Consequences
 
 - All workspace crates are Rust. No C++ in the heliOS-authored userland.
-- Cross-language interop happens at MCP, the events bus wire format (postcard), or the SQLite store — never via C++ bindings.
+- Cross-language interop happens at MCP, the events bus wire format (length-prefixed JSON), or the SQLite store — never via C++ bindings.
 - Applets compile to `wasm32-wasip2`. The `rust-toolchain.toml` explicitly includes this target.
 - The escape hatch for native heavy compute is the wgpu rich-applet tier; it must remain a small fraction of applets to preserve the architecture.
 - If a future contributor strongly prefers C++, we accept the cost of language churn rather than reopening this decision.

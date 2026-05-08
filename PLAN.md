@@ -82,7 +82,7 @@ Two cross-cutting buses connect everything: the **system-events bus** (broadcast
 | Applet UI tree | **Dioxus VirtualDOM** behind a custom WIT `host:ui/canvas` widget world | Cleanest path from a serializable tree to compositor rendering. |
 | Applet language | Rust + `cargo component` (installed) · Javy / Rhai (ephemeral, agent-emitted) | Trade compile latency vs sandbox tightness based on origin. |
 | Events bus runtime | **aya** for eBPF · zbus for D-Bus · libsystemd journal · rtnetlink + sock_diag · fanotify or eBPF-LSM for files | All best-in-class 2026 Rust crates per category. |
-| Events bus wire | **postcard** over Unix seqpacket; `tokio::sync::broadcast` in-proc | Sub-µs encode, ordered, bounded. |
+| Events bus wire | **length-prefixed JSON** over Unix stream; `tokio::sync::broadcast` in-proc | Tried postcard first, but it cannot serialize internally-tagged enums or `serde_json::Value` (commit 79517b7). JSON is fast enough at 10k evt/s. |
 | Entity store | **SQLite + rusqlite + FTS5**, schema lifted from `H/db` | Already an entity graph in H. Don't redesign. |
 | Project IDs | Reuse **artifactflow's** project_id namespace | `system-map.html` already names this as the integration spine. |
 | Dev host | Linux (Fedora 41+ or Arch). WSL2 acceptable for Rust work but **not** for compositor / VM testing. | Building a Linux OS from native Windows is brutal. |

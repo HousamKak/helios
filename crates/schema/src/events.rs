@@ -3,7 +3,8 @@
 //! These are *transient* messages, distinct from the persisted
 //! `events` SQL row (which carries `payload_json` for any of these). The
 //! enum is the wire format on the in-process broadcast channel and on the
-//! Unix-socket fanout to subscribers (postcard-encoded).
+//! Unix-socket fanout to subscribers (length-prefixed JSON encoded — see
+//! `helios_events::socket_server`).
 //!
 //! Per `docs/research/04-observability.md`: event budget v0.1 is 10k/sec
 //! sustained, 50k burst, drop-oldest with a `dropped` counter.

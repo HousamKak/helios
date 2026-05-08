@@ -9,8 +9,8 @@
 //!   Code via MCP in production).
 //! * **Events bus subscription** — the events daemon writes
 //!   `SystemEvent` values straight onto each subscriber's connection
-//!   using `postcard` framing. No request/response — the connection
-//!   is push-only.
+//!   using length-prefixed JSON framing (`[u32 BE length][JSON bytes]`).
+//!   No request/response — the connection is push-only.
 //!
 //! Default socket paths live in this module so every consumer agrees.
 

@@ -29,7 +29,10 @@ tokio = { version = "1", features = ["full"] }
 # Serialization
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-postcard = { version = "1", features = ["use-std"] }
+# NOTE: postcard was the original v0.1 plan but it cannot serialize
+# internally-tagged enums (#[serde(tag = "type")]) or serde_json::Value
+# fields. Both are present in EventPayload. JSON is used instead with the
+# same length-prefixed framing. See commit 79517b7d.
 
 # Errors & logging
 thiserror = "2"

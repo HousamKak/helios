@@ -6,7 +6,9 @@
 
 ## Headline
 
-A single Rust system service ingests every observable Linux event into one bus. Stack: **aya** for eBPF, **fanotify** or eBPF-LSM for files, **zbus** + **zbus_systemd** for D-Bus, **libsystemd journal tail**, **rtnetlink** + **netlink-packet-sock-diag** for networking. Fan into `tokio::sync::broadcast` (cap 16 384) with bounded mpsc fronts per producer; **postcard** wire format on Unix seqpacket. Budget: 10k events/sec sustained at 3-5% CPU on a 4-core host.
+A single Rust system service ingests every observable Linux event into one bus. Stack: **aya** for eBPF, **fanotify** or eBPF-LSM for files, **zbus** + **zbus_systemd** for D-Bus, **libsystemd journal tail**, **rtnetlink** + **netlink-packet-sock-diag** for networking. Fan into `tokio::sync::broadcast` (cap 16 384) with bounded mpsc fronts per producer; **length-prefixed JSON** wire format on Unix stream sockets (see footnote). Budget: 10k events/sec sustained at 3-5% CPU on a 4-core host.
+
+> **Footnote on wire format.** The original recommendation here was `postcard`. In implementation we found postcard cannot serialize internally-tagged enums (`#[serde(tag = "type")]`) nor `serde_json::Value` fields — both present in `EventPayload`. The fallback is JSON, which is ~3-5× slower per event but well within the 10k evt/s budget. See commit 79517b7d.
 
 ## Recommended stack
 
@@ -21,7 +23,7 @@ A single Rust system service ingests every observable Linux event into one bus. 
 | Netlink route/addr | rtnetlink | 0.14 |
 | Socket enumeration | netlink-packet-sock-diag | 0.4 |
 | In-proc bus | tokio::sync::broadcast + bounded mpsc fronts | tokio 1.40+ |
-| Wire format | postcard | 1.x |
+| Wire format | length-prefixed JSON (was postcard — see footnote above) | — |
 
 ## Key choices, briefly
 
@@ -41,7 +43,7 @@ One tokio runtime, N source tasks (aya loader, fanotify reader, zbus, journal ta
 ## Wire format
 
 - **In-proc**: pass `Arc<SystemEvent>`; don't serialize.
-- **IPC** (compositor / agent / applets): postcard over Unix seqpacket, ~150-400 ns/event encode, dependency-free. rkyv has higher raw throughput but its schema-evolution story is awkward for a long-lived bus. Avoid protobuf/prost (5-10× slower, overhead not worth it).
+- **IPC** (compositor / agent / applets): length-prefixed JSON over Unix stream sockets. Originally postcard was planned (~150-400 ns/event encode, dependency-free) but it cannot encode internally-tagged enums or `serde_json::Value` — see footnote at the top. rkyv has higher raw throughput but its schema-evolution story is awkward for a long-lived bus. Avoid protobuf/prost (5-10× slower, overhead not worth it).
 
 ## Per-event budget (v0.1)
 
