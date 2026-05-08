@@ -113,7 +113,10 @@ async fn pipeline_projects_and_serves_queries() -> anyhow::Result<()> {
         ipc::StoreResponse::Pong {
             migrations_applied, ..
         } => {
-            assert_eq!(migrations_applied, helios_schema::migrations::MIGRATIONS.len());
+            assert_eq!(
+                migrations_applied,
+                helios_schema::migrations::MIGRATIONS.len()
+            );
         }
         other => panic!("expected Pong, got {other:?}"),
     }
@@ -143,22 +146,14 @@ async fn pipeline_projects_and_serves_queries() -> anyhow::Result<()> {
         ipc::StoreResponse::Processes { processes } => {
             assert_eq!(processes.len(), 3);
             for p in &processes {
-                assert!(matches!(
-                    p.status,
-                    helios_schema::ProcessStatus::Running
-                ));
+                assert!(matches!(p.status, helios_schema::ProcessStatus::Running));
             }
         }
         other => panic!("expected Processes, got {other:?}"),
     }
 
     // GetProcess — fetch one we exited
-    match call(
-        &socket_path,
-        ipc::StoreRequest::GetProcess { pid: 2002 },
-    )
-    .await?
-    {
+    match call(&socket_path, ipc::StoreRequest::GetProcess { pid: 2002 }).await? {
         ipc::StoreResponse::Process { process } => {
             let p = process.expect("pid 2002 should exist");
             assert_eq!(p.pid, 2002);

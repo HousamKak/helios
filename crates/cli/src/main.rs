@@ -136,14 +136,11 @@ fn print_response(response: &helios_schema::ipc::StoreResponse) {
                 return;
             }
             println!(
-                "{:>6} {:>6} {:<16} {:<32} {}",
-                "pid", "ppid", "comm", "started_at", "cmdline"
+                "{:>6} {:>6} {:<16} {:<32} cmdline",
+                "pid", "ppid", "comm", "started_at"
             );
             for p in processes {
-                let ppid = p
-                    .ppid
-                    .map(|p| p.to_string())
-                    .unwrap_or_else(|| "-".into());
+                let ppid = p.ppid.map(|p| p.to_string()).unwrap_or_else(|| "-".into());
                 println!(
                     "{:>6} {:>6} {:<16} {:<32} {}",
                     p.pid, ppid, p.comm, p.started_at, p.cmdline
@@ -159,10 +156,7 @@ fn print_response(response: &helios_schema::ipc::StoreResponse) {
                 );
                 println!("comm:       {}", p.comm);
                 println!("cmdline:    {}", p.cmdline);
-                println!(
-                    "exe:        {}",
-                    p.exe.as_deref().unwrap_or("-")
-                );
+                println!("exe:        {}", p.exe.as_deref().unwrap_or("-"));
                 println!("uid/gid:    {}/{}", p.uid, p.gid);
                 println!("status:     {:?}", p.status);
                 println!("started_at: {}", p.started_at);
@@ -178,7 +172,10 @@ fn print_response(response: &helios_schema::ipc::StoreResponse) {
                 return;
             }
             for e in events {
-                println!("{}  {:<22}  {:<10}  {}", e.timestamp, e.kind, e.source, e.id);
+                println!(
+                    "{}  {:<22}  {:<10}  {}",
+                    e.timestamp, e.kind, e.source, e.id
+                );
             }
         }
         StoreResponse::CanvasEntities { rows } => {
@@ -233,5 +230,8 @@ fn print_usage() {
     println!();
     println!("ENVIRONMENT:");
     println!("  HELIOS_STORE_SOCKET   path to helios-store query socket");
-    println!("                        (default: {})", helios_schema::ipc::DEFAULT_STORE_SOCKET);
+    println!(
+        "                        (default: {})",
+        helios_schema::ipc::DEFAULT_STORE_SOCKET
+    );
 }
