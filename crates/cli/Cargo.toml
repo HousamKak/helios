@@ -1,0 +1,19 @@
+[package]
+name = "helios-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Ergonomic terminal client for the heliOS entity store. Talks to helios-store over its Unix query socket."
+
+[[bin]]
+name = "helios"
+path = "src/main.rs"
+
+[dependencies]
+helios-schema.workspace = true
+
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true

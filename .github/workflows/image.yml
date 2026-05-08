@@ -1,0 +1,89 @@
+name: Image
+
+# Image builds are slow (~15-25 min) so this workflow is opt-in:
+#   * Triggered manually via `gh workflow run image.yml` or the Actions tab.
+#   * Triggered automatically on tag pushes (release artifacts).
+# Day-to-day pushes to main go through `check.yml` only.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build heliOS image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: helios-image
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+              python3-pip \
+              qemu-system-x86 \
+              systemd-container \
+              ovmf \
+              squashfs-tools \
+              dosfstools \
+              e2fsprogs \
+              cryptsetup-bin
+          # Ubuntu's mkosi is too old; install the latest from PyPI.
+          pip install --user --break-system-packages mkosi
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Verify mkosi version
+        run: mkosi --version
+
+      - name: Build heliOS userland (release)
+        run: cargo build --workspace --release
+
+      - name: Stage userland into mkosi.skeleton
+        run: |
+          mkdir -p distro/mkosi.skeleton/usr/local/bin
+          mkdir -p distro/mkosi.skeleton/usr/lib/systemd/system/multi-user.target.wants
+          for bin in helios-events helios-store helios-mcp helios-shell helios; do
+              install -m 0755 "target/release/$bin" \
+                  "distro/mkosi.skeleton/usr/local/bin/$bin"
+          done
+          install -m 0644 distro/units/helios-events.service \
+              distro/mkosi.skeleton/usr/lib/systemd/system/helios-events.service
+          install -m 0644 distro/units/helios-store.service \
+              distro/mkosi.skeleton/usr/lib/systemd/system/helios-store.service
+          ln -sf ../helios-events.service \
+              distro/mkosi.skeleton/usr/lib/systemd/system/multi-user.target.wants/helios-events.service
+          ln -sf ../helios-store.service \
+              distro/mkosi.skeleton/usr/lib/systemd/system/multi-user.target.wants/helios-store.service
+
+      - name: Build disk image with mkosi
+        working-directory: distro
+        run: mkosi --force build
+
+      - name: Verify image
+        run: |
+          ls -lh distro/helios.raw
+          file distro/helios.raw
+          size_bytes=$(stat -c%s distro/helios.raw)
+          echo "image size: $size_bytes bytes"
+          # Sanity: image should be at least 100 MB.
+          if [ "$size_bytes" -lt $((100 * 1024 * 1024)) ]; then
+              echo "image is suspiciously small" >&2
+              exit 1
+          fi
+
+      - name: Upload image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: helios-image-${{ github.sha }}
+          path: distro/helios.raw
+          retention-days: 7
+          compression-level: 0

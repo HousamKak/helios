@@ -5,6 +5,7 @@ members = [
     "crates/events",
     "crates/store",
     "crates/mcp",
+    "crates/cli",
     "crates/applets",
     "crates/ui-wit",
     "crates/comp",
