@@ -1,6 +1,6 @@
 //! Client side of the events bus Unix socket.
 //!
-//! Connects to the events daemon, reads `[u32 BE length][postcard
+//! Connects to the events daemon, reads `[u32 BE length][JSON
 //! SystemEvent]` frames in a loop, hands each event off to the caller
 //! through an mpsc channel. Reconnects on disconnect — events bus may
 //! restart for any reason, the store should pick up where it left off.
@@ -50,7 +50,7 @@ async fn connect_and_consume(
         payload_buf.resize(len, 0);
         stream.read_exact(&mut payload_buf).await?;
 
-        let event: SystemEvent = postcard::from_bytes(&payload_buf)?;
+        let event: SystemEvent = serde_json::from_slice(&payload_buf)?;
         if tx.send(event).await.is_err() {
             return Ok(());
         }

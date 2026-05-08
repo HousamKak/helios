@@ -3,7 +3,7 @@
 //! Per `docs/research/04-observability.md`, the v0.1 architecture fans
 //! Linux observability sources (eBPF, procfs, fanotify, zbus, journal,
 //! netlink) into a single `tokio::sync::broadcast` channel and exposes
-//! it on a Unix seqpacket socket using `postcard` encoding.
+//! it on a Unix socket using length-prefixed JSON encoding.
 //!
 //! Phase 0 ships only the **procfs** source — a polling diff against
 //! `/proc` that emits `ProcessExec` and `ProcessExit` events. Phase 1

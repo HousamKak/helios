@@ -5,7 +5,7 @@
 //! incoming subscribers, and gives each one its own `broadcast::Receiver`
 //! plus a writer task that frames events on the wire.
 //!
-//! Wire format: `[u32 BE length][postcard-encoded SystemEvent]`. Length
+//! Wire format: `[u32 BE length][JSON-encoded SystemEvent]`. Length
 //! is `u32` because a `SystemEvent` is bounded by `EventPayload`'s
 //! variants, all of which serialize to under a few KB.
 //!
@@ -60,7 +60,7 @@ async fn handle_subscriber(
     loop {
         match rx.recv().await {
             Ok(event) => {
-                let bytes = postcard::to_allocvec(&event)?;
+                let bytes = serde_json::to_vec(&event)?;
                 let len = u32::try_from(bytes.len())?;
                 stream.write_all(&len.to_be_bytes()).await?;
                 stream.write_all(&bytes).await?;
