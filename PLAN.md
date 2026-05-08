@@ -300,16 +300,23 @@ Sub-agent prompts for the build phase should each receive: this plan as context,
 
 ---
 
-## 11. Open questions to answer before commit-zero
+## 11. Open questions
 
-1. **OS name.** Pick one. `heliOS`, `Hearth`, `H`, `Worldspace`, something else. Affects branding, repo name, internal namespacing (`helios-*` crates throughout this doc are placeholders).
-2. **Repo strategy.** One mega-repo (`helios/`) or 12 separate repos with a meta-repo? Recommendation: mega-repo with cargo workspace, switch to multi-repo only if we hire.
-3. **License.** AGPL? MIT? Source-available with a delayed open-source clause? Different answers depending on commercial intent.
-4. **Hardware test target for v0.1 bare-metal demo.** Pick *one* laptop or desktop model now. Recommendation: a Framework 13 (AMD) or a ThinkPad T14 — Linux-friendly, AMD iGPU, no Nvidia drama.
-5. **Where does Claude Code's authentication live?** Environment-baked API key in the image is wrong (security, distribution). systemd-creds or PAM-loaded keychain? Decide before Phase 1 ships.
-6. **Image vs installer.** v0.1 ships as a bootable ISO (good for VM demo). Bare-metal install workflow (graphical or minimal text) is Phase 4 polish — confirm scope.
-7. **Telemetry.** Collect anything about how you (the user) use it, to learn? If yes, where's the log? If no, document it as a stance.
-8. **Public-or-private during build.** Build in public from day one (Twitter / blog posts of every phase demo) vs go heads-down until v0.1. The marketing answer differs from the engineering answer.
+### Locked (2026-05-09)
+
+| # | Question | Answer | Reference |
+|---|---|---|---|
+| 1 | **OS name** | `heliOS` (working name; rename is a workspace-wide find/replace if revisited before public release) | scaffold + repo name |
+| 2 | **Repo strategy** | One mega-repo, cargo workspace | `Cargo.toml`, `crates/*` |
+| 3 | **License** | `AGPL-3.0-only` (placeholder; revisit before going private→public-public) | `Cargo.toml`, `README.md` |
+| 6 | **v0.1 distribution shape** | Bootable ISO only. Bare-metal installer deferred to v0.2. | `PLAN.md` §6 Phase 4 |
+| 7 | **Telemetry** | Local-only by construction; no phone-home; no remote sinks. | [ADR 0002](docs/adr/0002-local-only-telemetry.md) |
+| 8 | **Public-or-private during build** | Public for now, flip to private later via `gh repo edit --visibility private` | github.com/HousamKak/helios |
+
+### Still open
+
+- **#4 — Hardware test target for v0.1 bare-metal demo.** Deferred until Phase 2 (~month 5-6). No hardware currently available; will revisit at the Phase 1 → Phase 2 boundary. Until then, all dev runs over SSH into the existing Linux dev box, with NoMachine for any visual access.
+- **#5 — Claude Code authentication.** Open. Decide before Phase 1 ships its `helios-shell` integration. Recommendation when revisited: systemd-creds at first boot (encrypted at rest), prompted via the agent on initial login.
 
 ---
 
