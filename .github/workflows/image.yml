@@ -41,6 +41,7 @@ jobs:
               dosfstools \
               e2fsprogs \
               cryptsetup-bin \
+              mtools \
               dnf \
               rpm
 
