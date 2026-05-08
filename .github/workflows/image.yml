@@ -71,12 +71,18 @@ jobs:
 
       - name: Verify image
         run: |
-          ls -lh distro/helios.raw
-          file distro/helios.raw
-          size_bytes=$(stat -c%s distro/helios.raw)
-          echo "image size: $size_bytes bytes"
-          # Sanity: image should be at least 100 MB.
-          if [ "$size_bytes" -lt $((100 * 1024 * 1024)) ]; then
+          # mkosi produces:
+          #   helios.raw            symlink → helios.raw.raw.zst
+          #   helios.raw.raw.zst    compressed btrfs disk image
+          #   helios.raw.efi        UKI (PE32+ EFI binary)
+          #   helios.raw.vmlinuz    raw kernel
+          #   helios.raw.initrd     compressed initrd
+          ls -lh distro/helios.raw* 2>/dev/null
+          file distro/helios.raw.raw.zst
+          # Follow the symlink with `stat -L`.
+          size_bytes=$(stat -Lc%s distro/helios.raw.raw.zst)
+          echo "compressed image size: $size_bytes bytes"
+          if [ "$size_bytes" -lt $((50 * 1024 * 1024)) ]; then
               echo "image is suspiciously small" >&2
               exit 1
           fi
@@ -85,6 +91,15 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: helios-image-${{ github.sha }}
-          path: distro/helios.raw
+          # Include the disk image plus the UKI / kernel / initrd so
+          # downstream consumers can boot in QEMU without the disk
+          # image (e.g. `qemu-system-x86_64 -kernel helios.raw.vmlinuz
+          # -initrd helios.raw.initrd`).
+          path: |
+            distro/helios.raw.raw.zst
+            distro/helios.raw.efi
+            distro/helios.raw.vmlinuz
+            distro/helios.raw.initrd
           retention-days: 7
           compression-level: 0
+          if-no-files-found: error
