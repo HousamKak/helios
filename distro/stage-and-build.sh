@@ -17,5 +17,5 @@ echo "[1] Done."
 
 echo "[2] Running mkosi build (needs sudo)..."
 cd "$REPO/distro"
-sudo "$HOME/.local/bin/mkosi" --repository-key-fetch=yes --force build
+sudo mkosi --repository-key-fetch=yes --force build
 echo "[2] Done: $REPO/distro/helios.raw"
