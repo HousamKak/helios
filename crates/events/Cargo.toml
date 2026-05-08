@@ -29,13 +29,15 @@ tracing-subscriber.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 procfs = "0.17"
+zbus = { version = "5", default-features = false, features = ["tokio"] }
+futures-util = "0.3"
 
-# Phase 1 dependencies — uncomment as each additional source lands.
+# Deferred Phase 2+ dependencies — uncomment when those sources land.
+# Each requires either kernel-program iteration (aya), CAP_SYS_ADMIN
+# at runtime (fanotify), or libsystemd-dev linkage (systemd FFI).
 # aya = "0.13"
 # aya-ebpf = "0.1"
-# zbus = { version = "5", default-features = false, features = ["tokio"] }
-# zbus_systemd = "0.25"
-# rtnetlink = "0.14"
-# netlink-packet-sock-diag = "0.4"
 # nix = { version = "0.29", features = ["fanotify"] }
-# systemd = "0.10"  # journald tail
+# systemd = "0.10"  # journald tail via libsystemd FFI
+# Note: journal_source uses `journalctl --follow --output=json` as a
+# subprocess for v0.1 — pure Rust, no FFI, no extra deps.

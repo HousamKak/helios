@@ -81,8 +81,47 @@ pub fn project(conn: &Connection, event: &SystemEvent) -> anyhow::Result<()> {
                 params![event.timestamp, exit_code, pid],
             )?;
         }
-        // Other payload variants are logged into `events` only;
-        // dedicated table projections land alongside their event sources.
+        EventPayload::TcpConnect {
+            pid,
+            local_addr,
+            local_port,
+            remote_addr,
+            remote_port,
+        } => {
+            // Use the 4-tuple as the row id so TcpClose can find it.
+            let conn_id = format!("{local_addr}:{local_port}-{remote_addr}:{remote_port}");
+            conn.execute(
+                "INSERT INTO network_connections (
+                    id, pid, protocol, direction, local_addr, local_port,
+                    remote_addr, remote_port, state, established_at
+                 )
+                 VALUES (?1, ?2, 'tcp', 'outbound', ?3, ?4, ?5, ?6, 'established', ?7)
+                 ON CONFLICT(id) DO UPDATE SET
+                     state = 'established',
+                     closed_at = NULL",
+                params![
+                    conn_id,
+                    pid,
+                    local_addr,
+                    local_port,
+                    remote_addr,
+                    remote_port,
+                    event.timestamp
+                ],
+            )?;
+        }
+        EventPayload::TcpClose { connection_id } => {
+            conn.execute(
+                "UPDATE network_connections SET state = 'closed', closed_at = ?1
+                 WHERE id = ?2",
+                params![event.timestamp, connection_id],
+            )?;
+        }
+        // Other payload variants (DbusSignal, JournalRecord,
+        // SystemdUnitStateChanged, SurfaceMapped, applet events,
+        // orchestration events) are logged into `events` only.
+        // Dedicated table projections land when each gains a queryable
+        // entity model.
         _ => {}
     }
 

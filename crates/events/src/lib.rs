@@ -5,11 +5,16 @@
 //! netlink) into a single `tokio::sync::broadcast` channel and exposes
 //! it on a Unix socket using length-prefixed JSON encoding.
 //!
-//! Phase 0 ships only the **procfs** source — a polling diff against
-//! `/proc` that emits `ProcessExec` and `ProcessExit` events. Phase 1
-//! adds the Unix socket fanout so the entity store can subscribe.
-//! Future phases replace procfs with aya eBPF on
-//! `sched_process_exec`/`sched_process_exit` for kernel-level latency.
+//! Phase 1 sources currently wired:
+//!   * **procfs**         — process exec/exit (polling diff against /proc)
+//!   * **socket fanout**  — Unix-socket subscribers (helios-store etc.)
+//!   * **D-Bus signals**  — generic system-bus signal listener
+//!   * **journal tail**   — systemd journal records
+//!   * **network**        — TCP connection lifecycle from /proc/net/tcp
+//!
+//! Phase 2 will add aya eBPF (kernel-level latency for exec/file/tcp),
+//! fanotify (file events), and typed zbus_systemd proxies for unit-state
+//! events into a dedicated `systemd_units` table.
 
 pub use helios_schema::{EventPayload, EventSource, SystemEvent};
 
@@ -18,6 +23,15 @@ pub mod procfs_source;
 
 #[cfg(target_os = "linux")]
 pub mod socket_server;
+
+#[cfg(target_os = "linux")]
+pub mod dbus_source;
+
+#[cfg(target_os = "linux")]
+pub mod journal_source;
+
+#[cfg(target_os = "linux")]
+pub mod network_source;
 
 /// v0.1 event-rate budget. See `PLAN.md` §4 and observability research.
 pub const TARGET_SUSTAINED_EVENTS_PER_SEC: usize = 10_000;

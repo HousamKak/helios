@@ -1,22 +1,17 @@
 //! heliOS events bus daemon — Phase 1.
 //!
-//! Linux: spawns the procfs poller as a tokio task, runs the Unix
-//! socket fanout for subscribers (helios-store and any future
-//! consumer), and prints emitted events to stdout for live debugging.
+//! Linux: spawns five observability sources as tokio tasks, exposes
+//! a Unix socket fanout for subscribers (helios-store, applets,
+//! compositor), and prints emitted events to stdout for live debugging.
 //!
-//! Non-Linux: prints a stub message and exits non-zero. heliOS targets
-//! Linux exclusively past Phase 0; cross-platform is for the schema
-//! and applet crates only.
+//! Sources, each independently restartable:
+//!   * procfs_source       — process exec/exit
+//!   * dbus_source         — generic D-Bus system-bus signals
+//!   * journal_source      — systemd journal tail (via journalctl)
+//!   * network_source      — TCP connect/close from /proc/net/tcp{,6}
+//! plus the socket_server  — fanout over /run/helios/events.sock
 //!
-//! Run on a Linux host:
-//!
-//! ```sh
-//! cargo run -p helios-events
-//! # In another terminal:
-//! sleep 1; ls /tmp; true
-//! # The first window prints [exec] and [exit] lines for every PID
-//! # involved.
-//! ```
+//! Non-Linux: prints a stub message and exits non-zero.
 
 #[cfg(not(target_os = "linux"))]
 fn main() {
@@ -43,7 +38,7 @@ async fn main() -> anyhow::Result<()> {
     let (tx, mut rx) =
         broadcast::channel::<helios_schema::SystemEvent>(helios_events::BROADCAST_CAPACITY);
 
-    // Spawn the procfs source as a background task.
+    // procfs source — process lifecycle.
     let source_tx = tx.clone();
     let interval = Duration::from_millis(helios_events::PROCFS_POLL_INTERVAL_MS);
     tokio::spawn(async move {
@@ -52,7 +47,31 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
-    // Spawn the Unix socket fanout for external subscribers.
+    // D-Bus source — generic system-bus signal listener.
+    let dbus_tx = tx.clone();
+    tokio::spawn(async move {
+        if let Err(err) = helios_events::dbus_source::run(dbus_tx).await {
+            tracing::error!(?err, "dbus source crashed");
+        }
+    });
+
+    // Journal source — systemd journal tail.
+    let journal_tx = tx.clone();
+    tokio::spawn(async move {
+        if let Err(err) = helios_events::journal_source::run(journal_tx).await {
+            tracing::error!(?err, "journal source crashed");
+        }
+    });
+
+    // Network source — /proc/net/tcp polling.
+    let network_tx = tx.clone();
+    tokio::spawn(async move {
+        if let Err(err) = helios_events::network_source::run(network_tx).await {
+            tracing::error!(?err, "network source crashed");
+        }
+    });
+
+    // Unix socket fanout for external subscribers.
     let server_tx = tx.clone();
     let socket_path = helios_events::socket_server::socket_path_from_env();
     tokio::spawn(async move {
@@ -63,8 +82,8 @@ async fn main() -> anyhow::Result<()> {
 
     tracing::info!(
         budget_per_sec = helios_events::TARGET_SUSTAINED_EVENTS_PER_SEC,
-        poll_ms = helios_events::PROCFS_POLL_INTERVAL_MS,
-        "helios-events: phase-1 procfs + socket fanout running. Ctrl-C to stop."
+        sources = "procfs,dbus,journal,network",
+        "helios-events: phase-1 fanout running. Ctrl-C to stop."
     );
 
     loop {
@@ -98,7 +117,32 @@ fn print_event(event: &helios_schema::SystemEvent) {
         EventPayload::ProcessExit { pid, .. } => {
             println!("[exit] pid={pid}");
         }
-        // Other variants don't fire from the procfs source yet.
+        EventPayload::TcpConnect {
+            local_addr,
+            local_port,
+            remote_addr,
+            remote_port,
+            ..
+        } => {
+            println!("[net+] {local_addr}:{local_port} -> {remote_addr}:{remote_port}");
+        }
+        EventPayload::TcpClose { connection_id } => {
+            println!("[net-] {connection_id}");
+        }
+        EventPayload::DbusSignal {
+            interface, member, ..
+        } => {
+            println!("[dbus] {interface}.{member}");
+        }
+        EventPayload::JournalRecord {
+            unit,
+            priority,
+            message,
+        } => {
+            let unit_str = unit.as_deref().unwrap_or("-");
+            let snippet: String = message.chars().take(100).collect();
+            println!("[log p={priority}] {unit_str}: {snippet}");
+        }
         _ => {}
     }
 }
