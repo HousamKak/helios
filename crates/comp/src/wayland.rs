@@ -140,6 +140,19 @@ pub struct WaylandState {
     /// `XWaylandEvent::Ready`. m-7.3 picks up the X11 socket from
     /// here to start the X11Wm.
     pub xwayland: Option<crate::xwayland::XwmState>,
+
+    /// Active X11 window manager. Constructed in the
+    /// `XWaylandEvent::Ready` handler once we have the privileged X11
+    /// socket. `None` when XWayland is disabled or not yet ready.
+    pub xwm: Option<smithay::xwayland::X11Wm>,
+
+    /// `xwayland_shell_v1` global state. Required by smithay's
+    /// `XWaylandShellHandler` impl on `WaylandState`. Created at
+    /// startup when the xwayland feature is enabled (whether or not
+    /// the env var triggers an actual spawn — the global is cheap and
+    /// is the protocol vehicle XWayland uses to associate X windows
+    /// with their backing wl_surfaces).
+    pub xwayland_shell_state: Option<smithay::wayland::xwayland_shell::XWaylandShellState>,
 }
 
 impl WaylandState {
@@ -210,6 +223,10 @@ impl WaylandState {
             surface_to_entity: HashMap::new(),
             entity_to_world: HashMap::new(),
             xwayland: None,
+            xwm: None,
+            xwayland_shell_state: Some(
+                smithay::wayland::xwayland_shell::XWaylandShellState::new::<Self>(display_handle),
+            ),
         }
     }
 

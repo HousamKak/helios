@@ -20,6 +20,7 @@
 //! — read it top-to-bottom; the X11 lifecycle is hard to grep at.
 
 pub mod spawn;
+pub mod wm;
 
 use std::os::unix::net::UnixStream;
 
