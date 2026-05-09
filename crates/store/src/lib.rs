@@ -16,6 +16,9 @@ pub mod projector;
 pub mod events_client;
 
 #[cfg(target_os = "linux")]
+pub mod publisher;
+
+#[cfg(target_os = "linux")]
 pub mod server;
 
 pub use helios_schema::ipc::{StoreRequest, StoreResponse, StoredEvent};

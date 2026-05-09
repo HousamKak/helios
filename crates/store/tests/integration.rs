@@ -104,7 +104,7 @@ async fn pipeline_projects_and_serves_queries() -> anyhow::Result<()> {
     let server_db = db.clone();
     let server_socket = socket_path.clone();
     let server = tokio::spawn(async move {
-        let _ = helios_store::server::serve(server_socket, server_db).await;
+        let _ = helios_store::server::serve(server_socket, server_db, None).await;
     });
     wait_for_socket(&socket_path).await;
 

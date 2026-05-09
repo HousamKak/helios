@@ -60,6 +60,11 @@ pub enum StoreRequest {
     /// Aggregate counts for the dashboard: total processes, alive
     /// processes, events seen this minute, etc.
     Stats,
+    /// Move a canvas entity (window) to absolute world coordinates.
+    /// Updates the `canvas_entities` row and emits an `EntityPlaced`
+    /// event onto the bus so the compositor can reposition the
+    /// corresponding window. m-8.4 entry point.
+    MoveEntity { id: EntityId, x: f64, y: f64 },
 }
 
 /// One response from the entity store. Tagged like the request side.
@@ -94,6 +99,12 @@ pub enum StoreResponse {
     },
     Error {
         message: String,
+    },
+    /// Reply to `StoreRequest::MoveEntity`. `ok: false` typically
+    /// means the row didn't exist (unknown id); the message field
+    /// in `Error` is used for SQL-level failures.
+    Moved {
+        ok: bool,
     },
 }
 

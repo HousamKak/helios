@@ -83,11 +83,19 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!("event channel closed; projector exiting");
     });
 
+    // m-8.4: events publisher for `MoveEntity` → `EntityPlaced`
+    // emission. Lazy connect — if the events daemon isn't up yet
+    // the publisher reconnects on the first publish.
+    let publisher = helios_store::publisher::connect().await;
+
     // Query server.
     let server_socket = helios_store::server::socket_path_from_env();
     let server_db = db.clone();
+    let server_publisher = Some(publisher.clone());
     tokio::spawn(async move {
-        if let Err(err) = helios_store::server::serve(server_socket, server_db).await {
+        if let Err(err) =
+            helios_store::server::serve(server_socket, server_db, server_publisher).await
+        {
             tracing::error!(?err, "store server crashed");
         }
     });

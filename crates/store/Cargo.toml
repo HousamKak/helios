@@ -15,6 +15,7 @@ path = "src/lib.rs"
 
 [dependencies]
 helios-schema.workspace = true
+helios-events.workspace = true
 
 tokio.workspace = true
 serde.workspace = true

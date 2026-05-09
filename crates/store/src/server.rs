@@ -8,7 +8,9 @@
 //! query never blocks the runtime.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
+use helios_events::publisher::EventsPublisher;
 use helios_schema::EntityKind;
 use helios_schema::ipc::{StoreRequest, StoreResponse, StoredEvent};
 use rusqlite::params;
@@ -17,8 +19,16 @@ use tokio::net::{UnixListener, UnixStream};
 
 use crate::db::SharedDb;
 
-/// Bind the socket and accept connections forever.
-pub async fn serve(socket_path: PathBuf, db: SharedDb) -> anyhow::Result<()> {
+/// Bind the socket and accept connections forever. m-8.4: takes an
+/// optional `EventsPublisher` so `MoveEntity` requests can emit
+/// `EntityPlaced` events onto the bus after a successful SQL update.
+/// `None` is fine for tests / dev runs without an events daemon —
+/// the move still updates the row, just without bus notification.
+pub async fn serve(
+    socket_path: PathBuf,
+    db: SharedDb,
+    publisher: Option<Arc<EventsPublisher>>,
+) -> anyhow::Result<()> {
     if let Some(parent) = socket_path.parent()
         && !parent.as_os_str().is_empty()
     {
@@ -40,15 +50,20 @@ pub async fn serve(socket_path: PathBuf, db: SharedDb) -> anyhow::Result<()> {
             }
         };
         let db = db.clone();
+        let publisher = publisher.clone();
         tokio::spawn(async move {
-            if let Err(err) = handle_client(stream, db).await {
+            if let Err(err) = handle_client(stream, db, publisher).await {
                 tracing::debug!(?err, "client dropped");
             }
         });
     }
 }
 
-async fn handle_client(stream: UnixStream, db: SharedDb) -> anyhow::Result<()> {
+async fn handle_client(
+    stream: UnixStream,
+    db: SharedDb,
+    publisher: Option<Arc<EventsPublisher>>,
+) -> anyhow::Result<()> {
     let (read, mut write) = stream.into_split();
     let mut reader = BufReader::new(read);
     let mut line = String::new();
@@ -65,9 +80,25 @@ async fn handle_client(stream: UnixStream, db: SharedDb) -> anyhow::Result<()> {
             Ok(req) => {
                 let db_clone = db.clone();
                 let result = tokio::task::spawn_blocking(move || dispatch(&db_clone, req)).await?;
-                result.unwrap_or_else(|err| StoreResponse::Error {
-                    message: err.to_string(),
-                })
+                match result {
+                    Ok((response, Some(event))) => {
+                        // m-8.4: SQL succeeded; fire the bus
+                        // notification AFTER the row is durable. If
+                        // the publisher is missing or fails, log and
+                        // continue — the row is the source of truth,
+                        // the bus is the notification channel.
+                        if let Some(p) = publisher.as_ref()
+                            && let Err(err) = p.publish(&event).await
+                        {
+                            tracing::debug!(?err, "store: bus publish failed");
+                        }
+                        response
+                    }
+                    Ok((response, None)) => response,
+                    Err(err) => StoreResponse::Error {
+                        message: err.to_string(),
+                    },
+                }
             }
             Err(err) => StoreResponse::Error {
                 message: format!("invalid request: {err}"),
@@ -81,19 +112,78 @@ async fn handle_client(stream: UnixStream, db: SharedDb) -> anyhow::Result<()> {
     }
 }
 
-fn dispatch(db: &SharedDb, req: StoreRequest) -> anyhow::Result<StoreResponse> {
+/// Dispatch one request. Returns `(response, optional_event_to_publish)`.
+/// The event is `Some` only for write-style requests that need to be
+/// announced on the bus (currently `MoveEntity`). Read-only requests
+/// always return `None` for the event slot.
+fn dispatch(
+    db: &SharedDb,
+    req: StoreRequest,
+) -> anyhow::Result<(StoreResponse, Option<helios_schema::SystemEvent>)> {
     match req {
-        StoreRequest::Ping => Ok(handle_ping()),
-        StoreRequest::ListProcesses { limit } => handle_list_processes(db, limit.unwrap_or(100)),
-        StoreRequest::GetProcess { pid } => handle_get_process(db, pid),
+        StoreRequest::Ping => Ok((handle_ping(), None)),
+        StoreRequest::ListProcesses { limit } => {
+            handle_list_processes(db, limit.unwrap_or(100)).map(|r| (r, None))
+        }
+        StoreRequest::GetProcess { pid } => handle_get_process(db, pid).map(|r| (r, None)),
         StoreRequest::ListRecentEvents { limit, source } => {
-            handle_list_recent_events(db, limit.unwrap_or(100), source)
+            handle_list_recent_events(db, limit.unwrap_or(100), source).map(|r| (r, None))
         }
         StoreRequest::ListCanvasEntities { kind, desktop_id } => {
-            handle_list_canvas_entities(db, kind, desktop_id)
+            handle_list_canvas_entities(db, kind, desktop_id).map(|r| (r, None))
         }
-        StoreRequest::Stats => handle_stats(db),
+        StoreRequest::Stats => handle_stats(db).map(|r| (r, None)),
+        StoreRequest::MoveEntity { id, x, y } => handle_move_entity(db, &id, x, y),
     }
+}
+
+/// m-8.4: update the canvas entity row + build the corresponding
+/// EntityPlaced event for downstream emission.
+fn handle_move_entity(
+    db: &SharedDb,
+    id: &str,
+    x: f64,
+    y: f64,
+) -> anyhow::Result<(StoreResponse, Option<helios_schema::SystemEvent>)> {
+    let timestamp = helios_schema::now();
+    let conn = db.lock().unwrap();
+    // Update the row. SQLite's UPDATE returns the number of changed
+    // rows, which is our "did the id exist?" signal.
+    let rows_changed = conn.execute(
+        "UPDATE canvas_entities SET x = ?2, y = ?3, updated_at = ?4 WHERE id = ?1",
+        params![id, x, y, timestamp],
+    )?;
+    drop(conn);
+    if rows_changed == 0 {
+        // Row didn't exist. Tell the caller, don't emit anything.
+        return Ok((StoreResponse::Moved { ok: false }, None));
+    }
+    // Read the scale back so the event carries it (the schema's
+    // EntityPlaced has scale alongside x/y). We re-acquire the lock
+    // briefly — it's the same SharedDb, so cheap.
+    let conn = db.lock().unwrap();
+    let scale: f64 = conn
+        .query_row(
+            "SELECT scale FROM canvas_entities WHERE id = ?1",
+            params![id],
+            |r| r.get(0),
+        )
+        .unwrap_or(1.0);
+    drop(conn);
+    let event = helios_schema::SystemEvent {
+        id: helios_schema::generate_id(),
+        timestamp,
+        source: helios_schema::EventSource::Tool,
+        correlation_id: None,
+        causation_id: None,
+        payload: helios_schema::EventPayload::EntityPlaced {
+            canvas_entity_id: id.to_string(),
+            x,
+            y,
+            scale,
+        },
+    };
+    Ok((StoreResponse::Moved { ok: true }, Some(event)))
 }
 
 fn handle_ping() -> StoreResponse {
