@@ -88,7 +88,58 @@ pub fn definitions() -> Vec<ToolDef> {
                 "properties": {}
             }),
         },
+        ToolDef {
+            name: "helios_list_canvas_entities".to_string(),
+            description: "List entities currently placed on the heliOS \
+                          canvas. Each row carries an `id` (the canvas \
+                          entity id, used as the move target), \
+                          `entity_kind`, world coordinates (x, y), and \
+                          a desktop scope. Optionally filter by kind \
+                          (e.g. 'process', 'applet', 'agent') or by \
+                          desktop_id."
+                .to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "kind": {
+                        "type": "string",
+                        "description": "Filter to a single entity kind (process, file, applet, agent, terminal, task, project, connection, desktop)."
+                    },
+                    "desktop_id": {
+                        "type": "string",
+                        "description": "Filter to a single desktop's entities."
+                    }
+                }
+            }),
+        },
+        ToolDef {
+            name: "helios_move_entity".to_string(),
+            description: "Move a canvas entity (window) to absolute world \
+                          coordinates (x, y). Pass an `id` from \
+                          `helios_list_canvas_entities`. The compositor \
+                          observes the resulting EntityPlaced event on \
+                          the bus and visibly repositions the surface."
+                .to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "Canvas entity id (from helios_list_canvas_entities)."},
+                    "x": {"type": "number", "description": "World-space x in pixels."},
+                    "y": {"type": "number", "description": "World-space y in pixels."}
+                },
+                "required": ["id", "x", "y"]
+            }),
+        },
     ]
+}
+
+/// Parse a snake_case entity-kind string from a tool argument.
+/// EntityKind in helios_schema serializes via serde rename_all =
+/// snake_case but doesn't expose a FromStr. Round-tripping through
+/// serde_json keeps the behaviour identical to JSON deserialization.
+fn parse_entity_kind(s: &str) -> anyhow::Result<helios_schema::EntityKind> {
+    serde_json::from_value(serde_json::Value::String(s.to_string()))
+        .map_err(|e| anyhow::anyhow!("invalid kind '{s}': {e}"))
 }
 
 /// Tool name → store request mapping. Returns an in-flight
@@ -124,6 +175,33 @@ pub fn build_store_request(
                 .map(String::from),
         },
         "helios_stats" => StoreRequest::Stats,
+        "helios_list_canvas_entities" => {
+            let kind = match arguments.get("kind").and_then(|v| v.as_str()) {
+                None => None,
+                Some(s) => Some(parse_entity_kind(s)?),
+            };
+            let desktop_id = arguments
+                .get("desktop_id")
+                .and_then(|v| v.as_str())
+                .map(String::from);
+            StoreRequest::ListCanvasEntities { kind, desktop_id }
+        }
+        "helios_move_entity" => {
+            let id = arguments
+                .get("id")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| anyhow::anyhow!("id required"))?
+                .to_string();
+            let x = arguments
+                .get("x")
+                .and_then(|v| v.as_f64())
+                .ok_or_else(|| anyhow::anyhow!("x required"))?;
+            let y = arguments
+                .get("y")
+                .and_then(|v| v.as_f64())
+                .ok_or_else(|| anyhow::anyhow!("y required"))?;
+            StoreRequest::MoveEntity { id, x, y }
+        }
         other => anyhow::bail!("unknown tool: {other}"),
     })
 }
@@ -162,5 +240,29 @@ mod tests {
     fn get_process_requires_pid() {
         let r = build_store_request("helios_get_process", &json!({}));
         assert!(r.is_err());
+    }
+
+    #[test]
+    fn build_request_for_move_entity() {
+        let req = build_store_request(
+            "helios_move_entity",
+            &json!({"id": "01HABC", "x": 300.0, "y": 400.0}),
+        )
+        .unwrap();
+        match req {
+            helios_schema::ipc::StoreRequest::MoveEntity { id, x, y } => {
+                assert_eq!(id, "01HABC");
+                assert_eq!(x, 300.0);
+                assert_eq!(y, 400.0);
+            }
+            other => panic!("wrong variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn move_entity_requires_all_three() {
+        assert!(build_store_request("helios_move_entity", &json!({"x": 1.0, "y": 2.0})).is_err());
+        assert!(build_store_request("helios_move_entity", &json!({"id": "x", "y": 2.0})).is_err());
+        assert!(build_store_request("helios_move_entity", &json!({"id": "x", "x": 1.0})).is_err());
     }
 }
