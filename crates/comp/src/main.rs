@@ -134,6 +134,14 @@ fn main() -> anyhow::Result<()> {
     // EventLoop::run because we need to interleave winit's event
     // pump with the render step; calloop wraps the wayland side
     // only.
+    //
+    // `full_redraw` is a saturating counter incremented on events
+    // that invalidate previous frames' contents (resize, scale
+    // change). While > 0, we pass age=0 to render_output, which
+    // forces a full redraw and restores correctness; once it ticks
+    // back to zero, normal `buffer_age`-based partial redraws
+    // resume. Same pattern anvil uses (anvil/src/winit.rs:267).
+    let mut full_redraw: u8 = 1;
     loop {
         // 1. Pump winit events. Resized + CloseRequested handled
         //    here; Input is logged for now (chunk 4 forwards it
@@ -141,6 +149,21 @@ fn main() -> anyhow::Result<()> {
         let pump_status = comp_backend.winit.dispatch_new_events(|event| match event {
             WinitEvent::Resized { size, .. } => {
                 tracing::debug!(w = size.w, h = size.h, "winit window resized");
+                // Push the new mode to the output so wl_output
+                // clients see the updated geometry. The damage
+                // tracker is constructed from the output (auto
+                // mode), so it picks up the change.
+                let new_mode = smithay::output::Mode {
+                    size,
+                    refresh: 60_000,
+                };
+                state
+                    .output
+                    .change_current_state(Some(new_mode), None, None, None);
+                state.output.set_preferred(new_mode);
+                // Force a full redraw next frame: previous frame's
+                // pixels are now meaningless.
+                full_redraw = 4;
             }
             WinitEvent::CloseRequested => {
                 tracing::info!("winit close requested");
@@ -163,12 +186,20 @@ fn main() -> anyhow::Result<()> {
         //    decides aren't covered by surfaces are filled with the
         //    canvas colour. Empty space → fully canvas-coloured.
         //
-        //    age=0 forces a full redraw every frame in chunk 2;
-        //    chunk 3 wires `backend.buffer_age()` so idle frames
-        //    short-circuit.
-        // Render one frame. The bind borrow on backend has to release
-        // before submit(), so the rendering happens in a scope that
-        // returns the damage rectangles by value.
+        //    The damage tracker uses `buffer_age` to decide which
+        //    historical frame's damage rects to merge. age=0 always
+        //    forces a full redraw; we use age=0 only when
+        //    `full_redraw` is non-zero (just resized, etc.) and let
+        //    the normal `backend.buffer_age()` logic handle the rest.
+        full_redraw = full_redraw.saturating_sub(1);
+        let age = if full_redraw > 0 {
+            0
+        } else {
+            comp_backend.backend.buffer_age().unwrap_or(0)
+        };
+        // The bind borrow on backend has to release before submit(),
+        // so the rendering happens in a scope that returns the damage
+        // rectangles by value.
         let damage_to_submit: Option<
             Vec<smithay::utils::Rectangle<i32, smithay::utils::Physical>>,
         > = match comp_backend.backend.bind() {
@@ -184,7 +215,7 @@ fn main() -> anyhow::Result<()> {
                     renderer,
                     &mut fb,
                     1.0,
-                    0,
+                    age,
                     [&state.space],
                     custom_elements,
                     &mut state.damage_tracker,
