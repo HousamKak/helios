@@ -195,6 +195,14 @@ fn print_response(response: &helios_schema::ipc::StoreResponse) {
                 );
             }
         }
+        StoreResponse::Moved { ok } => {
+            if *ok {
+                println!("ok");
+            } else {
+                eprintln!("error: entity not found");
+                std::process::exit(1);
+            }
+        }
         StoreResponse::Error { message } => {
             eprintln!("error: {message}");
             std::process::exit(1);
