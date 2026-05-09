@@ -132,9 +132,7 @@ impl Viewport {
     /// `dx / zoom` from the centre (a "drag-the-paper" convention),
     /// we pass `(anchor - new)` to add the positive correction.
     pub fn zoom_around(&mut self, anchor_screen: WorldPoint, multiplier: f64) {
-        let world_under_anchor = self
-            .world_to_screen_transform()
-            .invert_point(anchor_screen);
+        let world_under_anchor = self.world_to_screen_transform().invert_point(anchor_screen);
         self.zoom *= multiplier;
         self.zoom = self.zoom.clamp(0.05, 64.0);
         let new_screen = self
