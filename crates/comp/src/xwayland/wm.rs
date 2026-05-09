@@ -12,9 +12,22 @@
 //! lets XWayland associate its X windows with their backing
 //! `wl_surface`s.
 //!
-//! Override-redirect (popups, menus) tracking and decoration policy
-//! land in chunks 7.5/7.6; chunk 7.3 logs them and otherwise
-//! treats them like regular toplevels.
+//! Override-redirect (popups, menus) tracking lands in chunk 7.6;
+//! chunk 7.3 logs them and otherwise treats them like regular
+//! toplevels.
+//!
+//! Decoration policy (m-7.5): heliOS draws all entity chrome itself
+//! (canvas paradigm — every entity gets the same frame). The
+//! standard X11 way to express "WM handles decorations" is for the
+//! client to read its own `_MOTIF_WM_HINTS` atom and observe
+//! `MWM_DECOR == 0`. Smithay 0.7 doesn't publicly expose
+//! `set_motif_hints` from the WM side (only `is_decorated()` for
+//! reading the client's preference), so we can't actively *tell*
+//! clients "we'll handle decorations" — they decide based on their
+//! own defaults. Until either smithay adds the setter or the m-8
+//! canvas chrome lands, X clients that draw their own decorations
+//! (Firefox, Electron apps) will look slightly inconsistent next
+//! to xdg-shell ones. Captured in the m-7.7 quirks doc.
 //!
 //! Reference: smithay/anvil/src/xwayland.rs `XwmHandler` impl.
 
@@ -23,7 +36,7 @@ use smithay::reexports::wayland_server::Resource;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::utils::{Logical, Rectangle};
 use smithay::wayland::xwayland_shell::{XWaylandShellHandler, XWaylandShellState};
-use smithay::xwayland::xwm::XwmId;
+use smithay::xwayland::xwm::{WmWindowProperty, XwmId};
 use smithay::xwayland::{X11Surface, X11Wm, XwmHandler};
 
 use crate::WaylandState;
@@ -57,7 +70,22 @@ impl XWaylandShellHandler for WaylandState {
             .insert(wl_surface.id(), entity_id.clone());
         self.entity_to_world
             .insert(entity_id.clone(), crate::WorldPoint::ORIGIN);
-        tracing::info!(%entity_id, pid = ?surface.pid(), "x11: surface_associated; entity bound");
+        // m-7.5: log the client's decoration preference. heliOS
+        // doesn't draw chrome yet (m-8), and we can't actively set
+        // `_MOTIF_WM_HINTS` to NoDecoration via the smithay 0.7
+        // public API, so this is informational. Clients drawing
+        // their own decoration (`is_decorated() == false` from the
+        // smithay perspective: client-side false → client draws
+        // chrome) will look inconsistent next to xdg-shell apps
+        // until canvas chrome lands.
+        let csd = surface.is_decorated();
+        tracing::info!(
+            %entity_id,
+            pid = ?surface.pid(),
+            csd,
+            "x11: surface_associated; entity bound (csd={})",
+            csd,
+        );
     }
 }
 
@@ -199,5 +227,31 @@ impl XwmHandler for WaylandState {
 
     fn move_request(&mut self, _xwm: XwmId, _window: X11Surface, _button: u32) {
         // Same as resize_request — moves are canvas-driven.
+    }
+
+    fn property_notify(&mut self, _xwm: XwmId, window: X11Surface, property: WmWindowProperty) {
+        // m-7.5: surface client-side metadata changes for diagnostics
+        // and so the m-8 canvas chrome can react to title / class
+        // changes when it lands. WindowType is useful for routing
+        // dialogs / utility windows differently from main windows.
+        match property {
+            WmWindowProperty::Title => {
+                tracing::debug!(pid = ?window.pid(), "x11: title changed");
+            }
+            WmWindowProperty::Class => {
+                tracing::debug!(pid = ?window.pid(), "x11: class changed");
+            }
+            WmWindowProperty::MotifHints => {
+                tracing::debug!(
+                    pid = ?window.pid(),
+                    csd = window.is_decorated(),
+                    "x11: motif hints changed",
+                );
+            }
+            // Protocols, Hints, NormalHints, TransientFor, WindowType,
+            // StartupId, Pid — surface for m-8 canvas chrome to
+            // consume. No-op now.
+            _ => {}
+        }
     }
 }
