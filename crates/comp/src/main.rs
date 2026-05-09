@@ -168,9 +168,11 @@ fn main() -> anyhow::Result<()> {
             WinitEvent::CloseRequested => {
                 tracing::info!("winit close requested");
             }
-            WinitEvent::Input(_) => {
-                // chunk 4: forward to Seat::motion / Seat::button /
-                // Seat::keyboard. For now ignored.
+            WinitEvent::Input(input_event) => {
+                // chunk 4: forward into the seat. WaylandState
+                // owns pointer + keyboard handles and routes the
+                // event to the focused surface.
+                state.process_winit_input(input_event);
             }
             _ => {}
         });

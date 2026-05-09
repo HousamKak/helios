@@ -161,9 +161,18 @@ impl XdgShellHandler for WaylandState {
         // automatically when the first commit on an unconfigured
         // surface arrives — we don't call surface.send_configure
         // here.
+        let wl_surface = surface.wl_surface().clone();
         let window = Window::new_wayland_window(surface);
         self.space.map_element(window, (0, 0), true);
-        tracing::info!("xdg: new toplevel surface mapped on space");
+
+        // m-4 chunk 4: give the new toplevel keyboard focus so
+        // typing into it works immediately. Until we have a real
+        // window-manager focus policy (m-7+), focus follows
+        // most-recently-mapped — sufficient for the demo.
+        let serial = smithay::utils::SERIAL_COUNTER.next_serial();
+        let kbd = self.keyboard.clone();
+        kbd.set_focus(self, Some(wl_surface), serial);
+        tracing::info!("xdg: new toplevel surface mapped + focused");
     }
 
     fn new_popup(&mut self, _surface: PopupSurface, _positioner: PositionerState) {

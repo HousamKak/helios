@@ -18,7 +18,9 @@
 
 use smithay::backend::renderer::damage::OutputDamageTracker;
 use smithay::desktop::{Space, Window};
-use smithay::input::SeatState;
+use smithay::input::keyboard::{KeyboardHandle, XkbConfig};
+use smithay::input::pointer::PointerHandle;
+use smithay::input::{Seat, SeatState};
 use smithay::output::{Mode, Output, PhysicalProperties, Scale, Subpixel};
 use smithay::reexports::wayland_server::DisplayHandle;
 use smithay::reexports::wayland_server::backend::ClientData;
@@ -75,6 +77,21 @@ pub struct WaylandState {
     /// as full-output (age=0). m-4 chunk 3 wires `backend.buffer_age()`
     /// so idle frames report no damage and skip submission.
     pub damage_tracker: OutputDamageTracker,
+
+    /// The seat itself — owns the keyboard/pointer/touch capabilities.
+    /// We keep it on state to add capabilities later (e.g. touch in
+    /// m-6+) without having to look it up via SeatState.
+    pub seat: Seat<Self>,
+
+    /// Cloneable handle to the seat's pointer. Used by the input
+    /// dispatcher in `process_winit_input` to forward winit motion
+    /// and button events into the wayland protocol.
+    pub pointer: PointerHandle<Self>,
+
+    /// Cloneable handle to the seat's keyboard. Used by the input
+    /// dispatcher to forward keystrokes, and by XdgShellHandler to
+    /// move keyboard focus when a new toplevel arrives.
+    pub keyboard: KeyboardHandle<Self>,
     //   pub data_device_state: smithay::wayland::selection::data_device::DataDeviceState,
     //   pub space: smithay::desktop::Space<smithay::desktop::Window>,
     //   pub renderer: Option<smithay::backend::renderer::gles::GlesRenderer>,
@@ -86,12 +103,16 @@ impl WaylandState {
     /// the compositor and shm globals.
     pub fn new(display_handle: &DisplayHandle) -> Self {
         let mut seat_state = SeatState::<Self>::new();
-        // Register the seat-0 global so clients can bind wl_seat.
-        // The returned `Seat<Self>` would be used to attach
-        // keyboard/pointer/touch capabilities; Phase 2 month-3 only
-        // advertises the seat — capabilities arrive with the calloop
-        // input loop in month-4.
-        let _seat = seat_state.new_wl_seat(display_handle, "seat-0");
+        // Register the seat-0 global so clients can bind wl_seat,
+        // and attach pointer + keyboard capabilities so the input
+        // dispatcher in main.rs has somewhere to forward events.
+        // Repeat parameters (200 ms delay, 25 char/s) match the
+        // Linux defaults; clients can override per-key.
+        let mut seat = seat_state.new_wl_seat(display_handle, "seat-0");
+        let pointer = seat.add_pointer();
+        let keyboard = seat
+            .add_keyboard(XkbConfig::default(), 200, 25)
+            .expect("default xkb config should be supported by xkbcommon");
 
         // One fake output, "output-0", 1920x1080 @ 60 Hz. Real
         // outputs come from the DRM backend (month-5+) or the winit
@@ -136,6 +157,101 @@ impl WaylandState {
             output,
             space,
             damage_tracker,
+            seat,
+            pointer,
+            keyboard,
+        }
+    }
+
+    /// Forward a winit input event into the seat's pointer / keyboard.
+    /// Pointer position is read out of `pointer.current_location()`
+    /// (smithay tracks it inside the handle); absolute motions are
+    /// translated through the current output mode.
+    ///
+    /// This is the m-4 chunk 4 entry point: real input flows through
+    /// the wayland protocol so weston-terminal sees keystrokes and
+    /// mouse motion.
+    pub fn process_winit_input(
+        &mut self,
+        event: smithay::backend::input::InputEvent<smithay::backend::winit::WinitInput>,
+    ) {
+        use smithay::backend::input::{
+            AbsolutePositionEvent, ButtonState, Event, InputEvent, KeyState, KeyboardKeyEvent,
+            PointerButtonEvent,
+        };
+        use smithay::input::keyboard::FilterResult;
+        use smithay::input::pointer::{ButtonEvent, MotionEvent};
+        use smithay::utils::SERIAL_COUNTER;
+
+        match event {
+            InputEvent::Keyboard { event } => {
+                let serial = SERIAL_COUNTER.next_serial();
+                let time = Event::time_msec(&event);
+                let key_code = event.key_code();
+                let key_state = event.state();
+                // Forward without filtering — the surface that has
+                // keyboard focus receives the keystroke. m-5 may
+                // intercept canvas-control keystrokes (zoom, pan)
+                // here before forwarding.
+                let kbd = self.keyboard.clone();
+                kbd.input::<(), _>(self, key_code, key_state, serial, time, |_, _, _| {
+                    FilterResult::Forward
+                });
+                let _ = key_state;
+                let _ = KeyState::Pressed;
+            }
+            InputEvent::PointerMotionAbsolute { event } => {
+                // winit gives us absolute coordinates normalized to
+                // the host window. Map them into output-logical
+                // coordinates by transforming with the current mode.
+                let output_size = match self.output.current_mode() {
+                    Some(mode) => mode.size,
+                    None => return,
+                };
+                // Output is at world (0, 0) on the space (chunk 2);
+                // logical position equals output-relative position.
+                // Scale=1 so physical→logical is a direct cast.
+                let logical_size = output_size.to_logical(1);
+                let pos = event.position_transformed(logical_size);
+                let serial = SERIAL_COUNTER.next_serial();
+                let time = Event::time_msec(&event);
+                let ptr = self.pointer.clone();
+                ptr.motion(
+                    self,
+                    None,
+                    &MotionEvent {
+                        location: pos,
+                        serial,
+                        time,
+                    },
+                );
+                ptr.frame(self);
+            }
+            InputEvent::PointerButton { event } => {
+                let serial = SERIAL_COUNTER.next_serial();
+                let time = Event::time_msec(&event);
+                let button = event.button_code();
+                let state = match event.state() {
+                    ButtonState::Pressed => smithay::backend::input::ButtonState::Pressed,
+                    ButtonState::Released => smithay::backend::input::ButtonState::Released,
+                };
+                let ptr = self.pointer.clone();
+                ptr.button(
+                    self,
+                    &ButtonEvent {
+                        button,
+                        state,
+                        serial,
+                        time,
+                    },
+                );
+                ptr.frame(self);
+            }
+            _ => {
+                // PointerMotion (relative), PointerAxis, Touch, Tablet,
+                // GestureSwipe* — handled in m-5 (gestures) and m-6+
+                // (touch / tablet).
+            }
         }
     }
 }
