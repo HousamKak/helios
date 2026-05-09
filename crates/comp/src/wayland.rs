@@ -16,6 +16,7 @@
 //!   * Subscription to `helios-events` to react to entity changes
 //!   * Periodic `helios-store` queries to refresh the placement cache
 
+use smithay::input::SeatState;
 use smithay::reexports::wayland_server::DisplayHandle;
 use smithay::reexports::wayland_server::backend::ClientData;
 use smithay::wayland::compositor::{CompositorClientState, CompositorState};
@@ -38,9 +39,15 @@ pub struct WaylandState {
     /// buffer pools. ARGB8888 + XRGB8888 are mandatory and always
     /// advertised; we add no extras for now.
     pub shm_state: ShmState,
+
+    /// `wl_seat` global state. One seat per server is enough for
+    /// Phase 2 — multi-seat (each user with their own keyboard +
+    /// pointer) lands when the agent-multiplexing story is real.
+    /// Required by `delegate_xdg_shell`'s transitive trait bounds:
+    /// XdgShell wants `SeatHandler` on the same state struct.
+    pub seat_state: SeatState<Self>,
     // Future fields:
     //   pub xdg_shell_state: smithay::wayland::shell::xdg::XdgShellState,
-    //   pub seat_state: smithay::wayland::seat::SeatState<Self>,
     //   pub output_state: smithay::wayland::output::OutputState,
     //   pub data_device_state: smithay::wayland::selection::data_device::DataDeviceState,
     //   pub space: smithay::desktop::Space<smithay::desktop::Window>,
@@ -52,10 +59,19 @@ impl WaylandState {
     /// Construct fresh state. Requires the display handle to register
     /// the compositor and shm globals.
     pub fn new(display_handle: &DisplayHandle) -> Self {
+        let mut seat_state = SeatState::<Self>::new();
+        // Register the seat-0 global so clients can bind wl_seat.
+        // The returned `Seat<Self>` would be used to attach
+        // keyboard/pointer/touch capabilities; Phase 2 month-3 only
+        // advertises the seat — capabilities arrive with the calloop
+        // input loop in month-4.
+        let _seat = seat_state.new_wl_seat(display_handle, "seat-0");
+
         Self {
             canvas: CanvasState::new(),
             compositor_state: CompositorState::new::<Self>(display_handle),
             shm_state: ShmState::new::<Self>(display_handle, Vec::new()),
+            seat_state,
         }
     }
 }

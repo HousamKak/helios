@@ -20,6 +20,8 @@
 //! handler code that has to be validated against real client behaviour
 //! all at once.
 
+use smithay::input::pointer::CursorImageStatus;
+use smithay::input::{Seat, SeatHandler, SeatState};
 use smithay::reexports::wayland_server::Client;
 use smithay::reexports::wayland_server::protocol::wl_buffer::WlBuffer;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
@@ -78,3 +80,40 @@ impl ShmHandler for WaylandState {
 }
 
 smithay::delegate_shm!(WaylandState);
+
+// ===========================================================================
+// wl_seat — keyboard + pointer + touch (advertisement only for now)
+// ===========================================================================
+//
+// Phase 2 month-3: the seat global is advertised so clients can bind
+// wl_seat. No capabilities (keyboard/pointer/touch) are attached yet —
+// those need a calloop input loop fed by libinput, which arrives in
+// month-4. Until then, `focus_changed` and `cursor_image` are noops.
+//
+// We pin all three focus types to `WlSurface` (smithay's minimal
+// pattern). A future refactor will introduce a `FocusTarget` enum if
+// we need to focus things that aren't surfaces (e.g. canvas-only
+// entities like agent labels), per the anvil example.
+
+impl SeatHandler for WaylandState {
+    type KeyboardFocus = WlSurface;
+    type PointerFocus = WlSurface;
+    type TouchFocus = WlSurface;
+
+    fn seat_state(&mut self) -> &mut SeatState<Self> {
+        &mut self.seat_state
+    }
+
+    fn focus_changed(&mut self, _seat: &Seat<Self>, _focused: Option<&WlSurface>) {
+        // Phase 2 month-4+: when input arrives, this is where we
+        // route data-device focus, primary-selection focus, and
+        // (eventually) update the canvas's focused-entity tracker.
+    }
+
+    fn cursor_image(&mut self, _seat: &Seat<Self>, _image: CursorImageStatus) {
+        // Phase 2 month-4+: track the client-supplied cursor surface
+        // so the renderer can composite it on top of the canvas.
+    }
+}
+
+smithay::delegate_seat!(WaylandState);
