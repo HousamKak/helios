@@ -37,7 +37,7 @@ fn main() -> anyhow::Result<()> {
     tracing::info!("helios-comp: Phase 2 month-3 — wl_compositor advertised");
 
     let mut display: Display<helios_comp::WaylandState> = Display::new()?;
-    let dh = display.handle();
+    let mut dh = display.handle();
     let socket = ListeningSocket::bind_auto("wayland", 1..33)?;
     let socket_name = socket
         .socket_name()
