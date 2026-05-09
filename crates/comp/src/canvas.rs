@@ -124,13 +124,24 @@ impl Viewport {
     /// Zoom around a screen-anchor point (typically the cursor) so
     /// the world point under that anchor stays put. Multiplier > 1.0
     /// zooms in, < 1.0 zooms out.
+    ///
+    /// Math: after the zoom change, the world point P that *was* at
+    /// `anchor_screen` now lands at `new_screen`. The required
+    /// correction to the centre is `(new_screen - anchor_screen) /
+    /// zoom_new`. Since `pan_by_screen_pixels(dx)` *subtracts*
+    /// `dx / zoom` from the centre (a "drag-the-paper" convention),
+    /// we pass `(anchor - new)` to add the positive correction.
     pub fn zoom_around(&mut self, anchor_screen: WorldPoint, multiplier: f64) {
-        let inv = self.world_to_screen_transform().invert_point(anchor_screen);
+        let world_under_anchor = self
+            .world_to_screen_transform()
+            .invert_point(anchor_screen);
         self.zoom *= multiplier;
         self.zoom = self.zoom.clamp(0.05, 64.0);
-        let new_screen = self.world_to_screen_transform().transform_point(inv);
-        let dx = new_screen.x - anchor_screen.x;
-        let dy = new_screen.y - anchor_screen.y;
+        let new_screen = self
+            .world_to_screen_transform()
+            .transform_point(world_under_anchor);
+        let dx = anchor_screen.x - new_screen.x;
+        let dy = anchor_screen.y - new_screen.y;
         self.pan_by_screen_pixels(dx, dy);
     }
 }
