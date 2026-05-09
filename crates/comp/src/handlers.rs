@@ -173,18 +173,27 @@ impl XdgShellHandler for WaylandState {
         // identifier external producers (skills, agents, applets)
         // use to address this window via helios-store's
         // canvas_entities table.
-        //
-        // Bus-side emission of `SurfaceMapped { surface_id,
-        // client_pid, kind }` is deferred — the events daemon is
-        // currently push-only fan-out; ingress for compositor-emitted
-        // events is m-6+ infrastructure work. The map is in-process
-        // for now and chunk 8 wires the consumer side via
-        // `move_entity`.
         let entity_id = helios_schema::generate_id();
         self.surface_to_entity
             .insert(surface_id.clone(), entity_id.clone());
         self.entity_to_world
             .insert(entity_id.clone(), crate::WorldPoint::ORIGIN);
+
+        // m-8.3: announce the surface lifecycle on the events bus.
+        // client_pid comes from the wayland-server credentials of the
+        // owning client. None when the credentials aren't available
+        // (the client disconnected mid-call, or wayland-server
+        // doesn't surface them on this platform).
+        let client_pid = wl_surface.client().and_then(|c| {
+            c.get_credentials(&self.display_handle)
+                .ok()
+                .map(|cr| cr.pid)
+        });
+        self.emit_event(helios_schema::EventPayload::SurfaceMapped {
+            surface_id: entity_id.clone(),
+            client_pid,
+            kind: "xdg_toplevel".to_string(),
+        });
 
         // m-4 chunk 4: give the new toplevel keyboard focus so
         // typing into it works immediately. Until we have a real
@@ -193,7 +202,7 @@ impl XdgShellHandler for WaylandState {
         let serial = smithay::utils::SERIAL_COUNTER.next_serial();
         let kbd = self.keyboard.clone();
         kbd.set_focus(self, Some(wl_surface), serial);
-        tracing::info!(?screen_pos, %entity_id, "xdg: new toplevel mapped + focused");
+        tracing::info!(?screen_pos, %entity_id, ?client_pid, "xdg: new toplevel mapped + focused");
     }
 
     fn new_popup(&mut self, _surface: PopupSurface, _positioner: PositionerState) {
@@ -202,10 +211,15 @@ impl XdgShellHandler for WaylandState {
 
     fn toplevel_destroyed(&mut self, surface: ToplevelSurface) {
         // m-5 chunk 7: drop the canvas entity binding when the
-        // client disconnects. Bus-side `SurfaceUnmapped` emission
-        // deferred (see new_toplevel comment).
+        // client disconnects.
         let surface_id = surface.wl_surface().id();
         if let Some(entity_id) = self.surface_to_entity.remove(&surface_id) {
+            // m-8.3: emit SurfaceUnmapped before dropping the binding
+            // so subscribers see the entity_id while it's still
+            // resolvable in their projection of the canvas.
+            self.emit_event(helios_schema::EventPayload::SurfaceUnmapped {
+                surface_id: entity_id.clone(),
+            });
             self.entity_to_world.remove(&entity_id);
             tracing::info!(%entity_id, "xdg: toplevel destroyed; entity unbound");
         }

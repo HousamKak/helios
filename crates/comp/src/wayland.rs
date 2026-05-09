@@ -153,6 +153,19 @@ pub struct WaylandState {
     /// is the protocol vehicle XWayland uses to associate X windows
     /// with their backing wl_surfaces).
     pub xwayland_shell_state: Option<smithay::wayland::xwayland_shell::XWaylandShellState>,
+
+    /// Sender half of the channel feeding `events_publisher` (m-8.3).
+    /// `None` until the publisher thread is spawned at startup; once
+    /// set, surface lifecycle handlers call `emit_event` to fan
+    /// `SurfaceMapped` / `SurfaceUnmapped` / `EntityPlaced` onto the
+    /// bus. Drop semantics: when WaylandState is dropped, this Sender
+    /// closes the channel and the publisher thread exits cleanly.
+    pub events_tx: Option<std::sync::mpsc::Sender<helios_schema::SystemEvent>>,
+
+    /// Cloned `DisplayHandle` retained so handlers can resolve client
+    /// credentials (`Client::get_credentials(&dh) -> Credentials`).
+    /// Cheap clone — DisplayHandle is Arc-backed.
+    pub display_handle: smithay::reexports::wayland_server::DisplayHandle,
 }
 
 impl WaylandState {
@@ -227,6 +240,31 @@ impl WaylandState {
             xwayland_shell_state: Some(
                 smithay::wayland::xwayland_shell::XWaylandShellState::new::<Self>(display_handle),
             ),
+            events_tx: None,
+            display_handle: display_handle.clone(),
+        }
+    }
+
+    /// Build a `SystemEvent` envelope around the given payload and
+    /// forward it onto the events-bus publisher channel (m-8.3). No-op
+    /// if the publisher hasn't been wired (e.g. running stand-alone
+    /// without an events daemon — the compositor must still work).
+    /// Best-effort — a full `events_tx` send queue or a failed
+    /// publisher reconnect doesn't propagate; we log and move on.
+    pub fn emit_event(&self, payload: helios_schema::EventPayload) {
+        let Some(tx) = self.events_tx.as_ref() else {
+            return;
+        };
+        let event = helios_schema::SystemEvent {
+            id: helios_schema::generate_id(),
+            timestamp: helios_schema::now(),
+            source: helios_schema::EventSource::Compositor,
+            correlation_id: None,
+            causation_id: None,
+            payload,
+        };
+        if let Err(err) = tx.send(event) {
+            tracing::debug!(?err, "events-publisher channel closed; dropping event");
         }
     }
 

@@ -79,6 +79,15 @@ impl XWaylandShellHandler for WaylandState {
         // chrome) will look inconsistent next to xdg-shell apps
         // until canvas chrome lands.
         let csd = surface.is_decorated();
+        // m-8.3: announce on the events bus. X11Surface::pid()
+        // returns the X client's PID directly — better source than
+        // wayland credentials (which would point to the XWayland
+        // process, not the actual app).
+        self.emit_event(helios_schema::EventPayload::SurfaceMapped {
+            surface_id: entity_id.clone(),
+            client_pid: surface.pid().map(|p| p as i32),
+            kind: "x11".to_string(),
+        });
         tracing::info!(
             %entity_id,
             pid = ?surface.pid(),
@@ -207,6 +216,12 @@ impl XwmHandler for WaylandState {
         if let Some(wl_surface) = window.wl_surface()
             && let Some(entity_id) = self.surface_to_entity.remove(&wl_surface.id())
         {
+            // m-8.3: emit before dropping the binding so subscribers
+            // can correlate the unmap with their projection of the
+            // canvas state.
+            self.emit_event(helios_schema::EventPayload::SurfaceUnmapped {
+                surface_id: entity_id.clone(),
+            });
             self.entity_to_world.remove(&entity_id);
             tracing::info!(%entity_id, "x11: window destroyed; entity unbound");
         }

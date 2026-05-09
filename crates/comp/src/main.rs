@@ -64,7 +64,16 @@ fn main() -> anyhow::Result<()> {
         let display: smithay::reexports::wayland_server::Display<helios_comp::WaylandState> =
             smithay::reexports::wayland_server::Display::new()?;
         let dh = display.handle();
-        let state = helios_comp::WaylandState::new(&dh);
+        let mut state = helios_comp::WaylandState::new(&dh);
+
+        // m-8.3: events-bus publisher (DRM path).
+        let (events_pub_tx, events_pub_rx) =
+            std::sync::mpsc::channel::<helios_schema::SystemEvent>();
+        helios_comp::events_publisher::spawn(
+            helios_comp::events_publisher::socket_path_from_env(),
+            events_pub_rx,
+        );
+        state.events_tx = Some(events_pub_tx);
 
         let runtime = std::env::var("HELIOS_COMP_LIFETIME_SECS")
             .ok()
@@ -131,6 +140,19 @@ fn main() -> anyhow::Result<()> {
     }
 
     let mut state = helios_comp::WaylandState::new(&dh);
+
+    // m-8.3: spawn the events-bus publisher on a background thread
+    // and wire its sender end onto state. Surface lifecycle handlers
+    // (XdgShell + XwmHandler) will fan SurfaceMapped / SurfaceUnmapped
+    // onto the bus from this point. Channel is unbounded; if the
+    // events daemon is down, publish errors log at debug and the
+    // compositor keeps rendering — best-effort by design.
+    let (events_pub_tx, events_pub_rx) = std::sync::mpsc::channel::<helios_schema::SystemEvent>();
+    helios_comp::events_publisher::spawn(
+        helios_comp::events_publisher::socket_path_from_env(),
+        events_pub_rx,
+    );
+    state.events_tx = Some(events_pub_tx);
 
     // m-5 chunk 8: subscribe to the heliOS events bus on a
     // background thread. EntityPlaced events get forwarded into the

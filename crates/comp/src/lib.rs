@@ -20,6 +20,9 @@ pub mod backend;
 pub mod events_client;
 
 #[cfg(target_os = "linux")]
+pub mod events_publisher;
+
+#[cfg(target_os = "linux")]
 pub mod handlers;
 
 #[cfg(target_os = "linux")]
