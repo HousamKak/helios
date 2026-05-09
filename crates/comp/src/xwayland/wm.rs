@@ -20,6 +20,7 @@
 
 use smithay::desktop::Window;
 use smithay::reexports::wayland_server::Resource;
+use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::utils::{Logical, Rectangle};
 use smithay::wayland::xwayland_shell::{XWaylandShellHandler, XWaylandShellState};
 use smithay::xwayland::xwm::XwmId;
@@ -36,6 +37,28 @@ impl XWaylandShellHandler for WaylandState {
             .as_mut()
             .expect("xwayland_shell_state not initialised")
     }
+
+    fn surface_associated(&mut self, _xwm: XwmId, wl_surface: WlSurface, surface: X11Surface) {
+        // m-7.4: an X11 window has been associated with a backing
+        // wl_surface. This is the moment the surface↔entity binding
+        // becomes possible: prior to association the X11Surface
+        // exists at the X11 layer but has no wl_surface key. Mint an
+        // entity_id here (mirrors the m-5.7 xdg_toplevel path) so the
+        // canvas treats both producers identically.
+        //
+        // OR-windows skip this binding — they're tracked in screen
+        // space (m-7.6), not on the canvas, so no entity_id is needed.
+        if surface.is_override_redirect() {
+            tracing::debug!("x11: surface_associated (override-redirect; not bound to entity)");
+            return;
+        }
+        let entity_id = helios_schema::generate_id();
+        self.surface_to_entity
+            .insert(wl_surface.id(), entity_id.clone());
+        self.entity_to_world
+            .insert(entity_id.clone(), crate::WorldPoint::ORIGIN);
+        tracing::info!(%entity_id, pid = ?surface.pid(), "x11: surface_associated; entity bound");
+    }
 }
 
 smithay::delegate_xwayland_shell!(WaylandState);
@@ -51,19 +74,11 @@ impl XwmHandler for WaylandState {
     }
 
     fn new_window(&mut self, _xwm: XwmId, window: X11Surface) {
-        // Window exists but isn't mapped yet. Most clients call
-        // map_window_request right after this; some hide and show
-        // multiple times across their lifecycle. Track the binding
-        // here so the entity_id is stable from creation, not from
-        // first map.
-        let entity_id = helios_schema::generate_id();
-        if let Some(wl_surface) = window.wl_surface() {
-            self.surface_to_entity
-                .insert(wl_surface.id(), entity_id.clone());
-            self.entity_to_world
-                .insert(entity_id.clone(), crate::WorldPoint::ORIGIN);
-        }
-        tracing::info!(%entity_id, pid = ?window.pid(), "x11: new toplevel window");
+        // Window exists but isn't mapped yet. The wl_surface binding
+        // happens later via the xwayland_shell_v1 protocol — see
+        // `XWaylandShellHandler::surface_associated` for the actual
+        // entity_id mint.
+        tracing::info!(pid = ?window.pid(), "x11: new toplevel window");
     }
 
     fn new_override_redirect_window(&mut self, _xwm: XwmId, window: X11Surface) {
