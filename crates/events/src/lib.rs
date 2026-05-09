@@ -22,6 +22,9 @@ pub use helios_schema::{EventPayload, EventSource, SystemEvent};
 pub mod procfs_source;
 
 #[cfg(target_os = "linux")]
+pub mod publisher;
+
+#[cfg(target_os = "linux")]
 pub mod socket_ingress;
 
 #[cfg(target_os = "linux")]
