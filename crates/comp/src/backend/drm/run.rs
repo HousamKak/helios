@@ -55,6 +55,11 @@ pub fn run(
     let socket = ListeningSocketSource::new_auto()?;
     let socket_name = socket.socket_name().to_string_lossy().into_owned();
     tracing::info!(socket = %socket_name, "wayland socket listening (drm path)");
+
+    // m-2.5.2: write the runtime file so the store can read it.
+    let display_file_written =
+        crate::runtime::write_runtime_file(helios_schema::ipc::WAYLAND_DISPLAY_FILE, &socket_name);
+
     let mut dh_for_clients = dh.clone();
     handle
         .insert_source(socket, move |client_stream, _, _state| {
@@ -139,6 +144,12 @@ pub fn run(
         .map_err(|err| anyhow::anyhow!("xwayland: {err}"))?
     {
         tracing::info!("xwayland: spawn requested (drm path)");
+    }
+
+    // m-2.5.2: spawn the default terminal so the user has a surface
+    // visible the moment the canvas paints.
+    if display_file_written {
+        let _ = crate::runtime::spawn_default_terminal(&socket_name);
     }
 
     // Kick the first frame so the screen has something visible

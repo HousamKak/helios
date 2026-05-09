@@ -103,6 +103,15 @@ fn main() -> anyhow::Result<()> {
     let socket_name = socket.socket_name().to_string_lossy().into_owned();
     tracing::info!(socket = %socket_name, "wayland socket listening");
 
+    // m-2.5.2: write the wayland socket name to /run/helios/wayland_display
+    // so helios-store (and anyone running `WAYLAND_DISPLAY=$(cat …)`) can
+    // find it without parsing the compositor's logs. Best-effort —
+    // a write failure logs but doesn't block startup.
+    let display_file_written = helios_comp::runtime::write_runtime_file(
+        helios_schema::ipc::WAYLAND_DISPLAY_FILE,
+        &socket_name,
+    );
+
     let mut dh_for_clients = dh.clone();
     handle
         .insert_source(socket, move |client_stream, _, _state| {
@@ -153,6 +162,18 @@ fn main() -> anyhow::Result<()> {
         events_pub_rx,
     );
     state.events_tx = Some(events_pub_tx);
+
+    // m-2.5.2: spawn the default terminal so the user has a surface
+    // ready when the canvas paints. No-op if HELIOS_DEFAULT_TERMINAL
+    // is unset and `foot` isn't on PATH (development on a host
+    // without foot installed). The spawn is purely additive — if
+    // it fails the canvas still works, just with no welcome
+    // terminal.
+    if display_file_written {
+        let _ = helios_comp::runtime::spawn_default_terminal(&socket_name);
+    } else {
+        tracing::info!("skipping default terminal spawn (wayland_display file not written)",);
+    }
 
     // m-5 chunk 8: subscribe to the heliOS events bus on a
     // background thread. EntityPlaced events get forwarded into the

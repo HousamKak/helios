@@ -837,6 +837,7 @@ dependencies = [
  "helios-events",
  "helios-schema",
  "helios-store",
+ "libc",
  "serde",
  "serde_json",
  "smithay",

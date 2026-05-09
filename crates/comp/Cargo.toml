@@ -58,5 +58,7 @@ smithay = { version = "0.7", default-features = false, features = [
     "xwayland",
 ] }
 calloop = "0.14"
+# m-2.5.2: libc::setsid in `runtime::spawn_default_terminal`.
+libc = "0.2"
 
 [dev-dependencies]

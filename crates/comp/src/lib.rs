@@ -23,6 +23,9 @@ pub mod events_client;
 pub mod events_publisher;
 
 #[cfg(target_os = "linux")]
+pub mod runtime;
+
+#[cfg(target_os = "linux")]
 pub mod handlers;
 
 #[cfg(target_os = "linux")]

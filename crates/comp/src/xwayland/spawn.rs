@@ -81,6 +81,13 @@ fn spawn(
                 unsafe {
                     std::env::set_var("DISPLAY", format!(":{}", display_number));
                 }
+                // m-2.5.2: also write the runtime file so the store
+                // (and the user's `DISPLAY=$(cat …)` shell pattern)
+                // can find the X server without parsing the trace.
+                crate::runtime::write_runtime_file(
+                    helios_schema::ipc::X11_DISPLAY_FILE,
+                    &format!(":{}", display_number),
+                );
 
                 // Pull the client out of the Mutex<Option<…>>; this
                 // is the first and only time Ready fires.
