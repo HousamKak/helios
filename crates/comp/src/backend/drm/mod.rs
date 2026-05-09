@@ -20,11 +20,13 @@
 //! of a small DRM compositor.
 
 pub mod device;
+pub mod output;
 pub mod session;
 
 use thiserror::Error;
 
 use self::device::{DeviceError, DrmRenderDevice};
+use self::output::{OutputData, OutputError};
 use self::session::{CompSession, SessionError};
 
 #[derive(Debug, Error)]
@@ -33,14 +35,16 @@ pub enum DrmBackendError {
     Session(#[from] SessionError),
     #[error("DRM device: {0}")]
     Device(#[from] DeviceError),
-    #[error("output enumeration not yet implemented (m-6.6)")]
-    OutputNotImplemented,
+    #[error("DRM output: {0}")]
+    Output(#[from] OutputError),
+    #[error("page-flip event source not yet implemented (m-6.7)")]
+    PageFlipNotImplemented,
 }
 
 /// Owner type for the DRM backend. Each chunk fills in more fields:
 ///   m-6.4: `session`
-///   m-6.5: + `device` (this commit)
-///   m-6.6: + `outputs: HashMap<crtc::Handle, OutputData>`
+///   m-6.5: + `device`
+///   m-6.6: + `outputs: Vec<OutputData>` (this commit)
 ///   m-6.8: + `libinput`
 pub struct DrmBackend {
     /// libseat session — owns DRM master and input device opens.
@@ -51,22 +55,33 @@ pub struct DrmBackend {
     /// device's `drm_notifier` is `Some` until m-6.7 inserts it into
     /// the calloop event loop for page-flip / vblank events.
     pub device: DrmRenderDevice,
+    /// Per-output bring-up bundles. v0.1 only ever populates one
+    /// element here; multi-monitor (m-9) keys this off `crtc::Handle`.
+    pub outputs: Vec<OutputData>,
 }
 
 impl DrmBackend {
-    /// Initialise the DRM backend. m-6.5 brings up the renderer
-    /// stack but stops before output enumeration, returning
-    /// `OutputNotImplemented` so the dispatch is end-to-end
-    /// testable on a real TTY: trace should show both
-    /// "libseat session opened" and "DRM device opened, GBM
-    /// allocator + EGL display + GLES renderer ready" before
-    /// `helios-comp` exits with the m-6.6 stub error.
+    /// Initialise the DRM backend. m-6.6 enumerates connectors and
+    /// builds a `DrmCompositor` for the first connected one. It then
+    /// returns `PageFlipNotImplemented` so the dispatch is still
+    /// end-to-end testable on a real TTY: trace should show
+    /// "libseat session opened seat=seat0",
+    /// "DRM device opened, GBM allocator + EGL display + GLES renderer ready",
+    /// and "DRM output: connector ...; m-6.7 picks up the page-flip
+    /// loop next.
     pub fn init() -> Result<Self, DrmBackendError> {
         let mut session = CompSession::open()?;
-        let device = DrmRenderDevice::open(&mut session)?;
-        // m-6.6 will continue here: scan_connectors, pick a mode,
-        // build a DrmCompositor for that connector + crtc.
-        let _backend = Self { session, device };
-        Err(DrmBackendError::OutputNotImplemented)
+        let mut device = DrmRenderDevice::open(&mut session)?;
+        let primary_output = OutputData::first_connected(&mut device)?;
+        let outputs = vec![primary_output];
+        // m-6.7 will continue here: insert the DrmDeviceNotifier into
+        // calloop and route page-flip / vblank events into the render
+        // tick.
+        let _backend = Self {
+            session,
+            device,
+            outputs,
+        };
+        Err(DrmBackendError::PageFlipNotImplemented)
     }
 }
