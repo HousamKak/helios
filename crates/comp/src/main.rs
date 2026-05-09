@@ -23,16 +23,10 @@ fn main() {
 
 #[cfg(target_os = "linux")]
 fn main() -> anyhow::Result<()> {
-    use smithay::reexports::wayland_server::backend::ClientData;
     use smithay::reexports::wayland_server::{Display, ListeningSocket};
     use std::sync::Arc;
     use std::time::{Duration, Instant};
     use tracing_subscriber::EnvFilter;
-
-    /// Per-client data attached to each accepted connection. Empty
-    /// for now — protocol delegates will populate it as they land.
-    struct EmptyClientData;
-    impl ClientData for EmptyClientData {}
 
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -40,9 +34,10 @@ fn main() -> anyhow::Result<()> {
         )
         .init();
 
-    tracing::info!("helios-comp: Phase 2 month-2 — wayland display alive, no globals yet");
+    tracing::info!("helios-comp: Phase 2 month-3 — wl_compositor advertised");
 
     let mut display: Display<helios_comp::WaylandState> = Display::new()?;
+    let dh = display.handle();
     let socket = ListeningSocket::bind_auto("wayland", 1..33)?;
     let socket_name = socket
         .socket_name()
@@ -50,19 +45,15 @@ fn main() -> anyhow::Result<()> {
         .unwrap_or_else(|| "<unknown>".to_string());
     tracing::info!(socket = %socket_name, "wayland socket bound");
 
-    let mut state = helios_comp::WaylandState::new();
+    let mut state = helios_comp::WaylandState::new(&dh);
     tracing::info!(
         viewport_zoom = state.canvas.viewport.zoom,
         viewport_w = state.canvas.viewport.screen_width,
         viewport_h = state.canvas.viewport.screen_height,
         placements = state.canvas.placement_count(),
-        "initial state ready"
+        "initial state ready (wl_compositor + wl_subcompositor live)"
     );
 
-    // Phase 2 month-2 dispatch loop: accept incoming clients, run
-    // dispatch, sleep. Phase 2 month-3 replaces this with a calloop
-    // event loop wired to libinput, the events-bus subscriber, and
-    // the redraw rhythm.
     let runtime = std::env::var("HELIOS_COMP_LIFETIME_SECS")
         .ok()
         .and_then(|s| s.parse().ok())
@@ -73,10 +64,7 @@ fn main() -> anyhow::Result<()> {
     let lifetime = Duration::from_secs(runtime);
     while start.elapsed() < lifetime {
         if let Some(stream) = socket.accept()? {
-            match display
-                .handle()
-                .insert_client(stream, Arc::new(EmptyClientData))
-            {
+            match dh.insert_client(stream, Arc::new(helios_comp::ClientState::default())) {
                 Ok(_) => tracing::info!("wayland client connected"),
                 Err(err) => tracing::warn!(?err, "failed to insert client"),
             }

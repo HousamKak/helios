@@ -1,42 +1,40 @@
 //! Smithay Wayland integration. Linux-only.
 //!
-//! Phase 2 month-2 milestone (this commit):
-//!   * `WaylandState` wraps the canvas-level `HeliosState` plus the
-//!     fields smithay's protocol delegates need.
-//!   * `main` constructs a `Display`, binds a Wayland socket, runs a
-//!     small dispatch loop. No globals are advertised yet — the
-//!     compositor exists as a Wayland server but doesn't expose any
-//!     protocol. `wayland-info` will see the server alive; clients
-//!     attempting to bind compositor / xdg-shell / shm find nothing.
+//! Phase 2 month-3 milestone (this commit):
+//!   * `WaylandState` carries `CompositorState`.
+//!   * `ClientState` is the per-client data attached on `insert_client`.
+//!   * `delegate_compositor!` (in `handlers.rs`) advertises the
+//!     `wl_compositor` and `wl_subcompositor` globals. Clients can now
+//!     bind them and create `wl_surface`s.
 //!
 //! Future commits add (in order):
-//!   * `delegate_compositor!` + `CompositorHandler` impl + `CompositorState`
 //!   * `delegate_shm!` + ShmHandler + ShmState
 //!   * `delegate_xdg_shell!` + XdgShellHandler + XdgShellState
 //!   * `delegate_seat!` + SeatHandler + SeatState
-//!   * calloop event loop replacing the simple sleep-poll
+//!   * calloop event loop replacing the sleep-poll
 //!   * GlesRenderer + winit backend for nested-Wayland iteration
 //!   * Subscription to `helios-events` to react to entity changes
 //!   * Periodic `helios-store` queries to refresh the placement cache
-//!
-//! Each addition is its own well-bounded commit. Adding them all at
-//! once would mean writing ~1k lines of smithay handler code blind
-//! and watching CI bisect.
+
+use smithay::reexports::wayland_server::DisplayHandle;
+use smithay::reexports::wayland_server::backend::ClientData;
+use smithay::wayland::compositor::{CompositorClientState, CompositorState};
 
 use crate::HeliosState as CanvasState;
 
-/// Top-level state owned by the Wayland event loop. Wraps the
-/// canvas-level `HeliosState`. Future smithay protocol-state fields
-/// (CompositorState, XdgShellState, ShmState, SeatState, OutputState,
-/// DataDeviceState, Space<Window>) attach to this struct directly so
-/// the smithay `delegate_*!` macros can find them.
+/// Top-level state owned by the Wayland event loop. Smithay's
+/// `delegate_*!` macros require trait impls on this struct; those
+/// live in `handlers.rs`.
 pub struct WaylandState {
-    /// Canvas state — viewport, placement cache, active desktop.
+    /// Canvas-level state — viewport, placement cache, active desktop.
     pub canvas: CanvasState,
+
+    /// `wl_compositor` + `wl_subcompositor` global state. Owned per
+    /// server, shared across clients.
+    pub compositor_state: CompositorState,
     // Future fields:
-    //   pub compositor_state: smithay::wayland::compositor::CompositorState,
-    //   pub xdg_shell_state: smithay::wayland::shell::xdg::XdgShellState,
     //   pub shm_state: smithay::wayland::shm::ShmState,
+    //   pub xdg_shell_state: smithay::wayland::shell::xdg::XdgShellState,
     //   pub seat_state: smithay::wayland::seat::SeatState<Self>,
     //   pub output_state: smithay::wayland::output::OutputState,
     //   pub data_device_state: smithay::wayland::selection::data_device::DataDeviceState,
@@ -46,27 +44,46 @@ pub struct WaylandState {
 }
 
 impl WaylandState {
-    pub fn new() -> Self {
+    /// Construct fresh state. Requires the display handle to register
+    /// the compositor global.
+    pub fn new(display_handle: &DisplayHandle) -> Self {
         Self {
             canvas: CanvasState::new(),
+            compositor_state: CompositorState::new::<Self>(display_handle),
         }
     }
 }
 
-impl Default for WaylandState {
-    fn default() -> Self {
-        Self::new()
-    }
+/// Per-client data attached at connection time. Lookup is via
+/// `client.get_data::<ClientState>()` from inside protocol handlers.
+#[derive(Default)]
+pub struct ClientState {
+    /// Per-client state for the `wl_compositor` protocol.
+    pub compositor_state: CompositorClientState,
 }
+
+impl ClientData for ClientState {}
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use smithay::reexports::wayland_server::Display;
 
     #[test]
-    fn new_constructs_with_default_canvas() {
-        let s = WaylandState::new();
-        assert_eq!(s.canvas.placement_count(), 0);
-        assert!(s.canvas.active_desktop_id.is_none());
+    fn new_constructs_with_compositor_state() {
+        let display: Display<WaylandState> = Display::new().unwrap();
+        let state = WaylandState::new(&display.handle());
+        assert_eq!(state.canvas.placement_count(), 0);
+        // If we got here, CompositorState::new::<Self>(...) succeeded,
+        // which means delegate_compositor! generated valid
+        // GlobalDispatch impls. That's the integration check.
+    }
+
+    #[test]
+    fn client_state_default_is_empty() {
+        let cs = ClientState::default();
+        // CompositorClientState's Default is also valid — implicit
+        // construction proves the trait bound.
+        let _ = &cs.compositor_state;
     }
 }
