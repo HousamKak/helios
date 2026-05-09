@@ -92,6 +92,22 @@ fn main() -> anyhow::Result<()> {
 
     let mut state = helios_comp::WaylandState::new(&dh);
 
+    // m-5 chunk 8: subscribe to the heliOS events bus on a
+    // background thread. EntityPlaced events get forwarded into the
+    // render loop via a std::sync::mpsc channel; the main loop
+    // drains it once per iteration and applies the moves to the
+    // corresponding windows. Other event variants are dropped
+    // (compositor doesn't care about ProcessExec, JournalRecord, etc.).
+    //
+    // The events daemon may not be running (dev iteration without
+    // helios-events alive) — the subscriber retries on a 2s cadence
+    // so the compositor still runs.
+    let (events_tx, events_rx) = std::sync::mpsc::channel::<helios_comp::EntityMove>();
+    helios_comp::events_client::spawn(
+        helios_comp::events_client::socket_path_from_env(),
+        events_tx,
+    );
+
     // Bring up the winit + GlesRenderer backend. This opens a
     // native window in the host Wayland session and creates an EGL
     // context bound to that window's surface.
@@ -179,6 +195,19 @@ fn main() -> anyhow::Result<()> {
         if let PumpStatus::Exit(_) = pump_status {
             tracing::info!("winit exit; shutting down");
             break;
+        }
+
+        // 1b. Drain the events-bus channel. Each EntityMove
+        //     repositions a known window via state.move_entity,
+        //     which re-maps the corresponding Window on Space and
+        //     bumps full_redraw. Bounded to 64 per iteration so a
+        //     burst of bus events can't starve rendering.
+        for _ in 0..64 {
+            match events_rx.try_recv() {
+                Ok(m) => state.move_entity(&m.entity_id, m.world),
+                Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => break,
+            }
         }
 
         // 2. Render one frame. Walk space.elements() via

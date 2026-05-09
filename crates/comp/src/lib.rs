@@ -17,6 +17,9 @@ pub mod state;
 pub mod backend;
 
 #[cfg(target_os = "linux")]
+pub mod events_client;
+
+#[cfg(target_os = "linux")]
 pub mod handlers;
 
 #[cfg(target_os = "linux")]
@@ -28,5 +31,7 @@ pub use state::HeliosState;
 
 #[cfg(target_os = "linux")]
 pub use backend::CompBackend;
+#[cfg(target_os = "linux")]
+pub use events_client::EntityMove;
 #[cfg(target_os = "linux")]
 pub use wayland::{ClientState, WaylandState};
