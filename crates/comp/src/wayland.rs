@@ -163,6 +163,16 @@ impl WaylandState {
         }
     }
 
+    /// Project a world-space point onto the screen using the active
+    /// viewport's transform. m-5 chunk 5 entry point — anywhere we
+    /// need to know "where on the screen does this world position
+    /// land right now?" goes through here.
+    pub fn world_to_screen(&self, world: crate::WorldPoint) -> (i32, i32) {
+        let t = self.canvas.viewport.world_to_screen_transform();
+        let p = t.transform_point(world);
+        (p.x.round() as i32, p.y.round() as i32)
+    }
+
     /// Forward a winit input event into the seat's pointer / keyboard.
     /// Pointer position is read out of `pointer.current_location()`
     /// (smithay tracks it inside the handle); absolute motions are

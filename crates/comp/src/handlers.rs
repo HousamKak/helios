@@ -152,10 +152,12 @@ impl XdgShellHandler for WaylandState {
     }
 
     fn new_toplevel(&mut self, surface: ToplevelSurface) {
-        // Wrap the toplevel in a `Window` and place it on the space.
-        // m-4 chunk 2 uses fullscreen-centred placement (0, 0) — the
-        // canvas world-to-screen transform from m-1 is wired in
-        // m-5 chunk 5 to honour the active viewport.
+        // Wrap the toplevel in a `Window` and place it on the space
+        // at the world origin transformed by the active viewport.
+        // Default viewport (zoom=1.0, centre=(0,0)) means a window
+        // at world (0,0) renders at screen-centre — that's the m-5
+        // spawn policy from ADR 0004 (centred-with-stagger; the
+        // stagger lands when there's more than one window, m-7+).
         //
         // The initial xdg configure is sent by smithay's xdg_shell
         // automatically when the first commit on an unconfigured
@@ -163,7 +165,8 @@ impl XdgShellHandler for WaylandState {
         // here.
         let wl_surface = surface.wl_surface().clone();
         let window = Window::new_wayland_window(surface);
-        self.space.map_element(window, (0, 0), true);
+        let screen_pos = self.world_to_screen(crate::WorldPoint::ORIGIN);
+        self.space.map_element(window, screen_pos, true);
 
         // m-4 chunk 4: give the new toplevel keyboard focus so
         // typing into it works immediately. Until we have a real
@@ -172,7 +175,7 @@ impl XdgShellHandler for WaylandState {
         let serial = smithay::utils::SERIAL_COUNTER.next_serial();
         let kbd = self.keyboard.clone();
         kbd.set_focus(self, Some(wl_surface), serial);
-        tracing::info!("xdg: new toplevel surface mapped + focused");
+        tracing::info!(?screen_pos, "xdg: new toplevel mapped + focused");
     }
 
     fn new_popup(&mut self, _surface: PopupSurface, _positioner: PositionerState) {
