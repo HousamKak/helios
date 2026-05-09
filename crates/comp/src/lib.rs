@@ -25,6 +25,9 @@ pub mod handlers;
 #[cfg(target_os = "linux")]
 pub mod wayland;
 
+#[cfg(target_os = "linux")]
+pub mod xwayland;
+
 pub use canvas::{CanvasTransform, EntityPlacement, Viewport, WorldPoint};
 pub use render::{RenderItem, RenderItemKind, RenderPlan};
 pub use state::HeliosState;

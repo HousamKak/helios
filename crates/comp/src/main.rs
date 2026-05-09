@@ -56,6 +56,22 @@ fn main() -> anyhow::Result<()> {
     let requested_backend =
         std::env::var("HELIOS_COMP_BACKEND").unwrap_or_else(|_| "winit".to_string());
     tracing::info!(backend = %requested_backend, "backend selected");
+
+    // m-7.1 scaffold: gated behind HELIOS_XWAYLAND_ENABLED=1. Returns
+    // Ok(None) when the env var is unset (XWayland disabled),
+    // Err(NotImplemented) until m-7.2 lands the real spawn. Bubble
+    // both up — disabled is a no-op, NotImplemented exits early so
+    // the dispatch is end-to-end testable.
+    match helios_comp::xwayland::spawn_if_enabled() {
+        Ok(None) => {}
+        Ok(Some(_xwm)) => {
+            tracing::info!("xwayland: enabled (m-7.2+ wires the X11Wm)");
+        }
+        Err(err) => {
+            return Err(anyhow::anyhow!("xwayland: {err}"));
+        }
+    }
+
     if requested_backend == "drm" {
         let backend = helios_comp::backend::drm::DrmBackend::init()
             .map_err(|err| anyhow::anyhow!("DRM backend: {err}"))?;
