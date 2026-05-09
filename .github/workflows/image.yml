@@ -43,7 +43,16 @@ jobs:
               cryptsetup-bin \
               mtools \
               dnf \
-              rpm
+              rpm \
+              libwayland-dev \
+              libxkbcommon-dev \
+              libudev-dev \
+              libgbm-dev \
+              libegl1-mesa-dev \
+              libinput-dev \
+              libdrm-dev \
+              libpixman-1-dev \
+              libseat-dev
 
       - name: Install mkosi from source
         run: |
