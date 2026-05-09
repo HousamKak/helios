@@ -49,6 +49,29 @@ fn main() -> anyhow::Result<()> {
         )
         .init();
 
+    // Backend selection. `HELIOS_COMP_BACKEND` overrides the default;
+    // when unset, we use winit. The DRM path is being built up
+    // incrementally across m-6.4..m-6.9 — for now `=drm` returns the
+    // NotImplemented error from the scaffold so the dispatch is
+    // testable end-to-end.
+    let requested_backend = std::env::var("HELIOS_COMP_BACKEND")
+        .unwrap_or_else(|_| "winit".to_string());
+    tracing::info!(backend = %requested_backend, "backend selected");
+    if requested_backend == "drm" {
+        let result = helios_comp::backend::drm::DrmBackend::init();
+        return match result {
+            Ok(_) => Err(anyhow::anyhow!(
+                "DRM backend constructed but no render loop yet (m-6.9)"
+            )),
+            Err(err) => Err(anyhow::anyhow!("DRM backend: {err}")),
+        };
+    }
+    if requested_backend != "winit" {
+        return Err(anyhow::anyhow!(
+            "unknown HELIOS_COMP_BACKEND value: {requested_backend} (expected 'winit' or 'drm')"
+        ));
+    }
+
     tracing::info!(
         "helios-comp: Phase 2 month-4 chunk 1 — winit + GlesRenderer up, empty render loop"
     );
