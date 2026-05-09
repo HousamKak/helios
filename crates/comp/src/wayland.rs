@@ -133,10 +133,13 @@ pub struct WaylandState {
     /// chunk 6). Updated by m-5 chunk 8 when an external producer
     /// (skill / agent / applet) writes a new position.
     pub entity_to_world: HashMap<EntityId, WorldPoint>,
-    //   pub data_device_state: smithay::wayland::selection::data_device::DataDeviceState,
-    //   pub space: smithay::desktop::Space<smithay::desktop::Window>,
-    //   pub renderer: Option<smithay::backend::renderer::gles::GlesRenderer>,
-    //   pub xwayland: Option<smithay::xwayland::XWayland>,
+
+    /// XWayland integration state. `None` when XWayland is disabled
+    /// (default) or hasn't yet emitted `Ready`. The
+    /// `xwayland::spawn::spawn` calloop callback fills this in on
+    /// `XWaylandEvent::Ready`. m-7.3 picks up the X11 socket from
+    /// here to start the X11Wm.
+    pub xwayland: Option<crate::xwayland::XwmState>,
 }
 
 impl WaylandState {
@@ -206,6 +209,7 @@ impl WaylandState {
             full_redraw: 1,
             surface_to_entity: HashMap::new(),
             entity_to_world: HashMap::new(),
+            xwayland: None,
         }
     }
 

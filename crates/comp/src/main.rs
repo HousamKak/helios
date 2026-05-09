@@ -57,21 +57,6 @@ fn main() -> anyhow::Result<()> {
         std::env::var("HELIOS_COMP_BACKEND").unwrap_or_else(|_| "winit".to_string());
     tracing::info!(backend = %requested_backend, "backend selected");
 
-    // m-7.1 scaffold: gated behind HELIOS_XWAYLAND_ENABLED=1. Returns
-    // Ok(None) when the env var is unset (XWayland disabled),
-    // Err(NotImplemented) until m-7.2 lands the real spawn. Bubble
-    // both up — disabled is a no-op, NotImplemented exits early so
-    // the dispatch is end-to-end testable.
-    match helios_comp::xwayland::spawn_if_enabled() {
-        Ok(None) => {}
-        Ok(Some(_xwm)) => {
-            tracing::info!("xwayland: enabled (m-7.2+ wires the X11Wm)");
-        }
-        Err(err) => {
-            return Err(anyhow::anyhow!("xwayland: {err}"));
-        }
-    }
-
     if requested_backend == "drm" {
         let backend = helios_comp::backend::drm::DrmBackend::init()
             .map_err(|err| anyhow::anyhow!("DRM backend: {err}"))?;
@@ -133,6 +118,17 @@ fn main() -> anyhow::Result<()> {
             },
         )
         .map_err(|e| anyhow::anyhow!("failed to insert wayland display source: {e}"))?;
+
+    // m-7.2: opt-in XWayland spawn. No-op when HELIOS_XWAYLAND_ENABLED
+    // is unset; otherwise launches the Xwayland binary as a child
+    // process and registers the calloop event source that listens
+    // for XWaylandEvent::Ready. Until that fires, state.xwayland is
+    // None; afterwards it carries the X11 socket and display number.
+    if helios_comp::xwayland::spawn::spawn_if_enabled(&handle, &dh)
+        .map_err(|err| anyhow::anyhow!("xwayland: {err}"))?
+    {
+        tracing::info!("xwayland: spawn requested (winit path)");
+    }
 
     let mut state = helios_comp::WaylandState::new(&dh);
 

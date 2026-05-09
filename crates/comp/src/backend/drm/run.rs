@@ -131,6 +131,16 @@ pub fn run(
         })
         .map_err(|e| anyhow::anyhow!("failed to insert drm notifier source: {e}"))?;
 
+    // m-7.2: opt-in XWayland spawn. No-op when HELIOS_XWAYLAND_ENABLED
+    // is unset. The XWaylandEvent::Ready callback fills in
+    // state.xwayland with the X11 socket and display number; m-7.3
+    // picks up from there to start the X11Wm.
+    if crate::xwayland::spawn::spawn_if_enabled(&handle, &dh)
+        .map_err(|err| anyhow::anyhow!("xwayland: {err}"))?
+    {
+        tracing::info!("xwayland: spawn requested (drm path)");
+    }
+
     // Kick the first frame so the screen has something visible
     // immediately. Without this, the display sits black until a
     // client connects and triggers damage.
