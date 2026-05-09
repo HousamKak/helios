@@ -110,6 +110,18 @@ pub fn run(
         })
         .map_err(|e| anyhow::anyhow!("failed to insert session notifier source: {e}"))?;
 
+    // libinput source. Real keyboard + pointer events flow through
+    // `state.process_input_event` — the same generic handler the
+    // winit backend uses, so app-side input behaviour (typing,
+    // pan/zoom gestures, button clicks) is identical across the two
+    // backends. m-6.8 entry point.
+    let libinput_backend = super::input::build_input_backend(&backend.session.session)?;
+    handle
+        .insert_source(libinput_backend, |event, _, state| {
+            state.process_input_event(event);
+        })
+        .map_err(|e| anyhow::anyhow!("failed to insert libinput source: {e}"))?;
+
     // DRM page-flip / vblank source. On VBlank(crtc) we mark the
     // previous frame submitted. Chunk 7 doesn't queue a follow-up
     // frame — we paint one frame at startup and then idle. Chunk 9

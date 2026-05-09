@@ -291,24 +291,23 @@ impl WaylandState {
         (p.x.round() as i32, p.y.round() as i32)
     }
 
-    /// Forward a winit input event into the seat's pointer / keyboard.
-    /// Pointer position is read out of `pointer.current_location()`
-    /// (smithay tracks it inside the handle); absolute motions are
-    /// translated through the current output mode.
-    ///
-    /// This is the m-4 chunk 4 entry point: real input flows through
-    /// the wayland protocol so weston-terminal sees keystrokes and
-    /// mouse motion.
-    pub fn process_winit_input(
+    /// Forward an input event into the seat's pointer / keyboard.
+    /// Generic over the backend so winit (m-4 chunk 4) and libinput
+    /// (m-6 chunk 8) share one handler. The backend-specific bits
+    /// (e.g. winit's normalized 0..1 absolute coordinates) are
+    /// already abstracted by smithay's `InputBackend` trait —
+    /// `event.position_transformed(size)` returns logical-pixel
+    /// coordinates regardless of the source backend.
+    pub fn process_input_event<B: smithay::backend::input::InputBackend>(
         &mut self,
-        event: smithay::backend::input::InputEvent<smithay::backend::winit::WinitInput>,
+        event: smithay::backend::input::InputEvent<B>,
     ) {
         use smithay::backend::input::{
-            AbsolutePositionEvent, ButtonState, Event, InputEvent, KeyState, KeyboardKeyEvent,
-            PointerButtonEvent,
+            AbsolutePositionEvent, ButtonState, Event, InputEvent, KeyboardKeyEvent,
+            PointerButtonEvent, PointerMotionEvent,
         };
         use smithay::input::keyboard::FilterResult;
-        use smithay::input::pointer::{ButtonEvent, MotionEvent};
+        use smithay::input::pointer::{ButtonEvent, MotionEvent, RelativeMotionEvent};
         use smithay::utils::SERIAL_COUNTER;
 
         match event {
@@ -317,33 +316,23 @@ impl WaylandState {
                 let time = Event::time_msec(&event);
                 let key_code = event.key_code();
                 let key_state = event.state();
-                // Forward without filtering — the surface that has
-                // keyboard focus receives the keystroke. m-5 may
-                // intercept canvas-control keystrokes (zoom, pan)
-                // here before forwarding.
                 let kbd = self.keyboard.clone();
                 kbd.input::<(), _>(self, key_code, key_state, serial, time, |_, _, _| {
                     FilterResult::Forward
                 });
-                let _ = key_state;
-                let _ = KeyState::Pressed;
             }
             InputEvent::PointerMotionAbsolute { event } => {
-                // winit gives us absolute coordinates normalized to
-                // the host window. Map them into output-logical
-                // coordinates by transforming with the current mode.
+                // Winit emits this for nested-Wayland mouse motion
+                // (normalized 0..1, transformed to logical pixels by
+                // smithay). Touchscreens via libinput also emit
+                // this variant.
                 let output_size = match self.output.current_mode() {
                     Some(mode) => mode.size,
                     None => return,
                 };
-                // Output is at world (0, 0) on the space (chunk 2);
-                // logical position equals output-relative position.
-                // Scale=1 so physical→logical is a direct cast.
                 let logical_size = output_size.to_logical(1);
                 let pos = event.position_transformed(logical_size);
 
-                // m-5 chunk 6: while middle-button drag is active,
-                // each motion delta pans the viewport.
                 if self.pan_dragging {
                     let dx = pos.x - self.pointer_pos.x;
                     let dy = pos.y - self.pointer_pos.y;
@@ -367,6 +356,52 @@ impl WaylandState {
                 );
                 ptr.frame(self);
             }
+            InputEvent::PointerMotion { event } => {
+                // Relative-motion path used by libinput for real mice.
+                // Accumulate into pointer_pos, clamp to the active
+                // output's logical bounds, then deliver as absolute
+                // motion so smithay's pointer handle picks the right
+                // focus surface.
+                let output_size = match self.output.current_mode() {
+                    Some(mode) => mode.size,
+                    None => return,
+                };
+                let logical_size = output_size.to_logical(1);
+                let delta = event.delta();
+                let mut x = self.pointer_pos.x + delta.x;
+                let mut y = self.pointer_pos.y + delta.y;
+                x = x.clamp(0.0, (logical_size.w - 1) as f64);
+                y = y.clamp(0.0, (logical_size.h - 1) as f64);
+                let new_pos = smithay::utils::Point::from((x, y));
+
+                if self.pan_dragging && (delta.x != 0.0 || delta.y != 0.0) {
+                    self.pan_screen(delta.x, delta.y);
+                }
+                self.pointer_pos = new_pos;
+
+                let serial = SERIAL_COUNTER.next_serial();
+                let time = Event::time_msec(&event);
+                let ptr = self.pointer.clone();
+                ptr.motion(
+                    self,
+                    None,
+                    &MotionEvent {
+                        location: new_pos,
+                        serial,
+                        time,
+                    },
+                );
+                ptr.relative_motion(
+                    self,
+                    None,
+                    &RelativeMotionEvent {
+                        delta,
+                        delta_unaccel: event.delta_unaccel(),
+                        utime: event.time(),
+                    },
+                );
+                ptr.frame(self);
+            }
             InputEvent::PointerButton { event } => {
                 let serial = SERIAL_COUNTER.next_serial();
                 let time = Event::time_msec(&event);
@@ -376,9 +411,6 @@ impl WaylandState {
                     ButtonState::Released => smithay::backend::input::ButtonState::Released,
                 };
 
-                // m-5 chunk 6: middle button (BTN_MIDDLE = 0x112)
-                // toggles the pan drag. Other buttons forward to the
-                // focused surface as usual.
                 const BTN_MIDDLE: u32 = 0x112;
                 if button == BTN_MIDDLE {
                     self.pan_dragging =
@@ -398,13 +430,6 @@ impl WaylandState {
                 ptr.frame(self);
             }
             InputEvent::PointerAxis { event } => {
-                // m-5 chunk 6: scroll wheel zooms around the cursor.
-                // Wheel "up" (negative vertical scroll on most
-                // backends) zooms in; "down" zooms out. Multiplier
-                // 1.1 / 0.9 — matches the m-1 canvas convention. We
-                // also forward the axis event to the focused surface
-                // so apps that handle scroll (text editors, terminals)
-                // still see it.
                 use smithay::backend::input::Axis;
                 use smithay::backend::input::PointerAxisEvent;
                 if let Some(amount) = event.amount(Axis::Vertical) {
@@ -414,15 +439,21 @@ impl WaylandState {
                         self.zoom_at_cursor(0.9);
                     }
                 }
-                // Surface-side axis forwarding (so terminals scroll
-                // their buffer) is m-6+ work — needs source-frame
-                // bookkeeping smithay's pointer handle expects.
             }
             _ => {
-                // PointerMotion (relative), Touch, Tablet,
-                // GestureSwipe* — handled in m-6+ (touch / tablet).
+                // Touch, Tablet, GestureSwipe* — m-6+ work.
             }
         }
+    }
+
+    /// Backwards-compatible alias for the winit path. Kept so the
+    /// winit main-loop callsite doesn't need to thread the type
+    /// parameter explicitly.
+    pub fn process_winit_input(
+        &mut self,
+        event: smithay::backend::input::InputEvent<smithay::backend::winit::WinitInput>,
+    ) {
+        self.process_input_event(event);
     }
 }
 

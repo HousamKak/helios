@@ -20,6 +20,7 @@
 //! of a small DRM compositor.
 
 pub mod device;
+pub mod input;
 pub mod output;
 pub mod run;
 pub mod session;
