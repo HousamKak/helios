@@ -25,11 +25,19 @@ pub mod output;
 pub mod run;
 pub mod session;
 
+use smithay::backend::drm::compositor::FrameFlags;
+use smithay::backend::renderer::Color32F;
+use smithay::desktop::space::space_render_elements;
 use thiserror::Error;
 
 use self::device::{DeviceError, DrmRenderDevice};
 use self::output::{OutputData, OutputError};
 use self::session::{CompSession, SessionError};
+use crate::WaylandState;
+
+/// heliOS canvas background colour. Same constant as `run::CANVAS_COLOR`
+/// — kept in this module so `tick` doesn't need a free-standing const.
+const CANVAS_COLOR: [f32; 4] = [0.05, 0.06, 0.10, 1.0];
 
 #[derive(Debug, Error)]
 pub enum DrmBackendError {
@@ -73,5 +81,97 @@ impl DrmBackend {
             device,
             outputs: vec![primary_output],
         })
+    }
+
+    /// Render and queue one frame for the primary output. Called
+    /// once at startup and on every page-flip / vblank. m-6.9 entry
+    /// point — replaces the chunk-7 single-frame paint with a
+    /// continuous render-on-vblank loop driven by `WaylandState::space`.
+    ///
+    /// Sequence per call:
+    ///   1. `frame_submitted()` — release the slot the kernel just
+    ///      flipped to, so the next render has a buffer to write into.
+    ///   2. `space_render_elements` — derive RenderElements from every
+    ///      `Window` mapped on the space. Empty space → empty Vec →
+    ///      DrmCompositor renders just the canvas-clear colour.
+    ///   3. `render_frame` — composite into the primary plane swapchain.
+    ///   4. `queue_frame` — submit if there's actual damage; skip
+    ///      otherwise so we don't burn GPU on no-op flips.
+    pub fn tick(&mut self, state: &mut WaylandState) -> anyhow::Result<()> {
+        let Some(output_data) = self.outputs.first_mut() else {
+            return Ok(());
+        };
+
+        // Step 1: kernel finished flipping to the previous frame, so
+        // the swapchain slot it owned is free again. Idempotent on
+        // the first call (no prior frame, returns Ok(None)).
+        let _ = output_data.compositor.frame_submitted();
+
+        if !self.device.drm.is_active() {
+            // Session is paused (TTY switched away). Don't even try
+            // to render — we'd hit DeviceInactive errors. The
+            // ActivateSession path will tick again on resume.
+            return Ok(());
+        }
+
+        // Step 2: walk Space → RenderElements. The wayland_frontend
+        // feature pulls in the layer-map handling automatically.
+        // Empty Vec produces a clear-color frame.
+        let elements = match space_render_elements(
+            &mut self.device.renderer,
+            [&state.space],
+            &output_data.output,
+            1.0,
+        ) {
+            Ok(v) => v,
+            Err(_) => {
+                // OutputNoMode — the output hasn't been given a mode
+                // yet. Skip this tick.
+                return Ok(());
+            }
+        };
+
+        // Step 3 + 4: render and (conditionally) queue.
+        let render_result = output_data
+            .compositor
+            .render_frame::<_, _>(
+                &mut self.device.renderer,
+                &elements,
+                Color32F::from(CANVAS_COLOR),
+                FrameFlags::DEFAULT,
+            )
+            .map_err(|e| anyhow::anyhow!("render_frame failed: {e}"))?;
+        if !render_result.is_empty {
+            output_data
+                .compositor
+                .queue_frame(())
+                .map_err(|e| anyhow::anyhow!("queue_frame failed: {e}"))?;
+            // Decrement the full-redraw counter once we've actually
+            // submitted a frame — keeps the same "two consecutive
+            // full redraws after invalidation" pattern as the winit
+            // path.
+            state.full_redraw = state.full_redraw.saturating_sub(1);
+        }
+        Ok(())
+    }
+
+    /// Apply a session activate / pause transition. Pausing releases
+    /// DRM master so the foreground compositor on the new TTY can
+    /// take over; activating re-acquires it. Subsequent ticks paint
+    /// again. Called from the `LibSeatSessionNotifier` calloop source.
+    pub fn handle_session_event(&mut self, event: smithay::backend::session::Event) {
+        use smithay::backend::session::Event;
+        match event {
+            Event::PauseSession => {
+                tracing::info!("session: paused — releasing drm master");
+                self.device.drm.pause();
+            }
+            Event::ActivateSession => {
+                tracing::info!("session: activated — reacquiring drm master");
+                if let Err(err) = self.device.drm.activate(true) {
+                    tracing::error!(?err, "drm activate failed");
+                }
+            }
+        }
     }
 }

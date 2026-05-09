@@ -1,53 +1,45 @@
 //! Calloop event loop driving the DRM backend.
 //!
-//! Phase 2 m-6 chunk 7. Replaces the manual winit-style poll loop
-//! with a calloop event loop that owns three sources:
+//! Phase 2 m-6 chunk 7 introduced this; chunk 9 closes it out by
+//! turning the single-frame paint into a continuous render-on-vblank
+//! loop and routing session pause/resume into the DRM device. Owns
+//! five sources:
 //!
 //!   * `LibSeatSessionNotifier` — TTY switch (Activate / Pause)
-//!     pauses or resumes the DRM device. Without this, switching to
-//!     another VT and back leaves the compositor with stale DRM
-//!     master state.
-//!   * `DrmDeviceNotifier` — kernel page-flip / vblank events. On
-//!     `VBlank(crtc)`, we mark the previous frame submitted and
-//!     schedule the next frame.
-//!   * Wayland display + socket — same shape as the winit path.
+//!     pauses or resumes the DRM device via
+//!     `DrmBackend::handle_session_event`.
+//!   * `LibinputInputBackend` — real keyboard / pointer events
+//!     forwarded to `state.process_input_event` (m-6.8).
+//!   * `DrmDeviceNotifier` — kernel page-flip / vblank events drive
+//!     `DrmBackend::tick`, which renders the next frame.
+//!   * Wayland display + listening socket.
 //!
-//! Chunk 7 paints exactly one canvas-clear frame and lets the loop
-//! idle on the next vblank. No client surfaces are walked yet —
-//! that's m-6.9. The test criterion is: real TTY → screen turns
-//! heliOS-navy, CPU drops to ~0 after the frame is on screen.
-//!
-//! Reference: smithay/anvil/src/udev.rs — search for
-//! `LoopHandle::insert_source` of the DrmDeviceNotifier and the
-//! `LibSeatSession` notifier.
+//! `DrmBackend` is owned by an `Rc<RefCell<…>>` so the calloop
+//! callbacks (one per source) can share mutable access. Calloop runs
+//! single-threaded, so RefCell is the right primitive — no Mutex
+//! contention, no Send bounds, panic-on-double-borrow is a real
+//! programming error and surfacing it is what we want.
 
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use smithay::backend::drm::DrmEvent;
-use smithay::backend::drm::compositor::FrameFlags;
-use smithay::backend::renderer::Color32F;
-use smithay::backend::renderer::element::solid::SolidColorRenderElement;
-use smithay::backend::session::Event as SessionEvent;
 use smithay::reexports::calloop::generic::Generic;
 use smithay::reexports::calloop::{EventLoop, Interest, Mode, PostAction};
 use smithay::reexports::wayland_server::Display;
 use smithay::wayland::socket::ListeningSocketSource;
 
 use super::DrmBackend;
-use super::output::OutputData;
 use crate::{ClientState, WaylandState};
-
-/// heliOS canvas background colour. Same constant the winit path uses
-/// — kept in sync deliberately so both backends paint the same world.
-const CANVAS_COLOR: [f32; 4] = [0.05, 0.06, 0.10, 1.0];
 
 /// Drive the DRM backend until either the runtime budget elapses or
 /// the wayland display closes. `runtime_secs == 0` runs indefinitely
 /// (the production behaviour); positive values bound the run for CI
 /// and dev iteration.
 pub fn run(
-    mut backend: DrmBackend,
+    backend: DrmBackend,
     display: Display<WaylandState>,
     mut state: WaylandState,
     runtime_secs: u64,
@@ -56,6 +48,8 @@ pub fn run(
 
     let mut event_loop: EventLoop<WaylandState> = EventLoop::try_new()?;
     let handle = event_loop.handle();
+
+    let backend = Rc::new(RefCell::new(backend));
 
     // Wayland clients listen here. Same shape as the winit path.
     let socket = ListeningSocketSource::new_auto()?;
@@ -72,8 +66,8 @@ pub fn run(
         })
         .map_err(|e| anyhow::anyhow!("failed to insert wayland socket source: {e}"))?;
 
-    // Wayland display polled via calloop — protocol traffic is
-    // dispatched on each iteration.
+    // Wayland display polled via calloop — protocol traffic dispatched
+    // on each iteration.
     handle
         .insert_source(
             Generic::new(display, Interest::READ, Mode::Level),
@@ -86,59 +80,50 @@ pub fn run(
         )
         .map_err(|e| anyhow::anyhow!("failed to insert wayland display source: {e}"))?;
 
-    // Session notifier — TTY switch pause/resume. Chunk 7 only logs
-    // and toggles DrmDevice::pause / activate; chunks 8 and 9 will
-    // also pause libinput and re-render on resume.
-    let session_notifier = backend
-        .session
-        .take_notifier()
-        .ok_or_else(|| anyhow::anyhow!("session notifier already taken"))?;
-    // We can't keep `&mut backend` inside the closure because calloop
-    // wants `&mut WaylandState` only. Pass behaviour through a shared
-    // cell. For chunk 7 we own the DrmDevice and DrmCompositor inside
-    // `backend`, but we don't need them from the session callback yet
-    // — we only log activate/deactivate transitions. m-6.9 will route
-    // these into device.pause / activate via shared ownership.
+    // Take notifiers + libinput out of the backend before borrowing
+    // it from inside closures. Each is moved into its own calloop
+    // source.
+    let (session_notifier, drm_notifier, libinput_backend) = {
+        let mut b = backend.borrow_mut();
+        let s = b
+            .session
+            .take_notifier()
+            .ok_or_else(|| anyhow::anyhow!("session notifier already taken"))?;
+        let d = b
+            .device
+            .take_notifier()
+            .ok_or_else(|| anyhow::anyhow!("drm notifier already taken"))?;
+        let l = super::input::build_input_backend(&b.session.session)?;
+        (s, d, l)
+    };
+
+    // Session source — TTY switch pause/resume.
+    let backend_for_session = Rc::clone(&backend);
     handle
-        .insert_source(session_notifier, move |event, _, _state| match event {
-            SessionEvent::ActivateSession => {
-                tracing::info!("session: activated (TTY switch back)");
-            }
-            SessionEvent::PauseSession => {
-                tracing::info!("session: paused (TTY switched away)");
-            }
+        .insert_source(session_notifier, move |event, _, _state| {
+            backend_for_session.borrow_mut().handle_session_event(event);
         })
         .map_err(|e| anyhow::anyhow!("failed to insert session notifier source: {e}"))?;
 
-    // libinput source. Real keyboard + pointer events flow through
-    // `state.process_input_event` — the same generic handler the
-    // winit backend uses, so app-side input behaviour (typing,
-    // pan/zoom gestures, button clicks) is identical across the two
-    // backends. m-6.8 entry point.
-    let libinput_backend = super::input::build_input_backend(&backend.session.session)?;
+    // libinput source — real keyboard + pointer events.
     handle
         .insert_source(libinput_backend, |event, _, state| {
             state.process_input_event(event);
         })
         .map_err(|e| anyhow::anyhow!("failed to insert libinput source: {e}"))?;
 
-    // DRM page-flip / vblank source. On VBlank(crtc) we mark the
-    // previous frame submitted. Chunk 7 doesn't queue a follow-up
-    // frame — we paint one frame at startup and then idle. Chunk 9
-    // turns this into a continuous render-on-vblank loop.
-    let drm_notifier = backend
-        .device
-        .take_notifier()
-        .ok_or_else(|| anyhow::anyhow!("drm notifier already taken"))?;
+    // DRM page-flip / vblank source. On each VBlank, render the next
+    // frame from `state.space`. Errors during render are logged but
+    // don't bring down the loop — they're typically recoverable
+    // (transient DRM busy, etc.).
+    let backend_for_vblank = Rc::clone(&backend);
     handle
-        .insert_source(drm_notifier, |event, _meta, _state| match event {
+        .insert_source(drm_notifier, move |event, _meta, state| match event {
             DrmEvent::VBlank(crtc) => {
                 tracing::trace!(?crtc, "DRM vblank");
-                // m-6.9 will:
-                //   - call compositor.frame_submitted()
-                //   - render_frame for the next frame
-                //   - queue_frame
-                // For chunk 7 we let the canvas just sit on screen.
+                if let Err(err) = backend_for_vblank.borrow_mut().tick(state) {
+                    tracing::warn!(?err, "drm tick on vblank failed");
+                }
             }
             DrmEvent::Error(err) => {
                 tracing::error!(?err, "DRM error");
@@ -146,12 +131,12 @@ pub fn run(
         })
         .map_err(|e| anyhow::anyhow!("failed to insert drm notifier source: {e}"))?;
 
-    // Kick the first frame so the screen actually shows something
-    // visible during the chunk-7 demo. No render elements yet —
-    // m-6.9 will walk WaylandState::space.elements() here. This
-    // proves the renderer + DrmCompositor + KMS pipeline is alive
-    // without needing any clients connected.
-    paint_initial_frame(&mut backend)?;
+    // Kick the first frame so the screen has something visible
+    // immediately. Without this, the display sits black until a
+    // client connects and triggers damage.
+    if let Err(err) = backend.borrow_mut().tick(&mut state) {
+        tracing::warn!(?err, "initial drm tick failed");
+    }
 
     let deadline = if runtime_secs == 0 {
         None
@@ -168,9 +153,6 @@ pub fn run(
         }
     );
 
-    // Main loop. calloop blocks in epoll until something fires; CPU
-    // is ~0 between events. Each iteration: dispatch ready sources,
-    // flush wayland clients, check the runtime budget.
     loop {
         let timeout = match deadline {
             Some(d) => Some(d.saturating_duration_since(Instant::now())),
@@ -188,47 +170,5 @@ pub fn run(
         dh.flush_clients()?;
     }
 
-    Ok(())
-}
-
-/// Render and queue exactly one frame. m-6.9 generalises this into a
-/// repeated render-on-vblank loop. For chunk 7 we just demonstrate
-/// the path: GLES → swapchain buffer → KMS framebuffer → page flip.
-fn paint_initial_frame(backend: &mut DrmBackend) -> anyhow::Result<()> {
-    let Some(output_data) = backend.outputs.first_mut() else {
-        anyhow::bail!("no outputs to render");
-    };
-    let OutputData {
-        compositor, output, ..
-    } = output_data;
-
-    // No surface elements yet (chunk 9 walks the wayland space). An
-    // empty slice still drives a clear-to-canvas-color frame because
-    // DrmCompositor renders the clear-color across regions not
-    // covered by any element.
-    let elements: &[SolidColorRenderElement] = &[];
-
-    let render_result = compositor
-        .render_frame::<_, _>(
-            &mut backend.device.renderer,
-            elements,
-            Color32F::from(CANVAS_COLOR),
-            FrameFlags::DEFAULT,
-        )
-        .map_err(|e| anyhow::anyhow!("render_frame failed: {e}"))?;
-    if render_result.is_empty {
-        // Nothing changed (uninitialized swapchain shouldn't hit
-        // this on the first call, but be defensive).
-        tracing::warn!("initial frame reported empty; skipping queue");
-        return Ok(());
-    }
-    compositor
-        .queue_frame(())
-        .map_err(|e| anyhow::anyhow!("queue_frame failed: {e}"))?;
-    let (w, h) = (
-        output.current_mode().map(|m| m.size.w).unwrap_or(0),
-        output.current_mode().map(|m| m.size.h).unwrap_or(0),
-    );
-    tracing::info!(w, h, "DRM: initial canvas-clear frame queued");
     Ok(())
 }
