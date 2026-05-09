@@ -24,9 +24,14 @@ use smithay::input::pointer::CursorImageStatus;
 use smithay::input::{Seat, SeatHandler, SeatState};
 use smithay::reexports::wayland_server::Client;
 use smithay::reexports::wayland_server::protocol::wl_buffer::WlBuffer;
+use smithay::reexports::wayland_server::protocol::wl_seat::WlSeat;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
+use smithay::utils::Serial;
 use smithay::wayland::buffer::BufferHandler;
 use smithay::wayland::compositor::{CompositorClientState, CompositorHandler, CompositorState};
+use smithay::wayland::shell::xdg::{
+    PopupSurface, PositionerState, ToplevelSurface, XdgShellHandler, XdgShellState,
+};
 use smithay::wayland::shm::{ShmHandler, ShmState};
 
 use crate::wayland::{ClientState, WaylandState};
@@ -117,3 +122,48 @@ impl SeatHandler for WaylandState {
 }
 
 smithay::delegate_seat!(WaylandState);
+
+// ===========================================================================
+// xdg_shell — toplevel windows + popups
+// ===========================================================================
+//
+// Phase 2 month-3: handlers log when a toplevel or popup is created.
+// Phase 2 month-4 wraps each toplevel in a `Window`, places it on
+// `Space`, and assigns canvas coordinates from the active desktop's
+// placement policy. Until then, the protocol surface is correct
+// (configures, ack_configure, popup positioning) but nothing renders.
+//
+// Only the no-default trait methods are implemented — smithay
+// supplies sensible defaults for move_request, resize_request, etc.,
+// which we override later when interactive window manipulation
+// translates into canvas pan/zoom.
+
+impl XdgShellHandler for WaylandState {
+    fn xdg_shell_state(&mut self) -> &mut XdgShellState {
+        &mut self.xdg_shell_state
+    }
+
+    fn new_toplevel(&mut self, _surface: ToplevelSurface) {
+        tracing::info!("xdg: new toplevel surface");
+    }
+
+    fn new_popup(&mut self, _surface: PopupSurface, _positioner: PositionerState) {
+        tracing::info!("xdg: new popup surface");
+    }
+
+    fn grab(&mut self, _surface: PopupSurface, _seat: WlSeat, _serial: Serial) {
+        // Phase 2 month-5+: route input to the popup until the grab
+        // ends. Important for menus and dropdowns.
+    }
+
+    fn reposition_request(
+        &mut self,
+        _surface: PopupSurface,
+        _positioner: PositionerState,
+        _token: u32,
+    ) {
+        // Phase 2 month-5+: re-anchor the popup with a new positioner.
+    }
+}
+
+smithay::delegate_xdg_shell!(WaylandState);

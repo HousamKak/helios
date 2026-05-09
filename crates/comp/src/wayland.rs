@@ -20,6 +20,7 @@ use smithay::input::SeatState;
 use smithay::reexports::wayland_server::DisplayHandle;
 use smithay::reexports::wayland_server::backend::ClientData;
 use smithay::wayland::compositor::{CompositorClientState, CompositorState};
+use smithay::wayland::shell::xdg::XdgShellState;
 use smithay::wayland::shm::ShmState;
 
 use crate::HeliosState as CanvasState;
@@ -46,8 +47,12 @@ pub struct WaylandState {
     /// Required by `delegate_xdg_shell`'s transitive trait bounds:
     /// XdgShell wants `SeatHandler` on the same state struct.
     pub seat_state: SeatState<Self>,
+
+    /// `xdg_wm_base` global state. Routes toplevel and popup
+    /// surface creation to the compositor. Toplevels are real
+    /// windows (apps); popups are menus, dropdowns, tooltips.
+    pub xdg_shell_state: XdgShellState,
     // Future fields:
-    //   pub xdg_shell_state: smithay::wayland::shell::xdg::XdgShellState,
     //   pub output_state: smithay::wayland::output::OutputState,
     //   pub data_device_state: smithay::wayland::selection::data_device::DataDeviceState,
     //   pub space: smithay::desktop::Space<smithay::desktop::Window>,
@@ -72,6 +77,7 @@ impl WaylandState {
             compositor_state: CompositorState::new::<Self>(display_handle),
             shm_state: ShmState::new::<Self>(display_handle, Vec::new()),
             seat_state,
+            xdg_shell_state: XdgShellState::new::<Self>(display_handle),
         }
     }
 }
