@@ -203,6 +203,13 @@ fn print_response(response: &helios_schema::ipc::StoreResponse) {
                 std::process::exit(1);
             }
         }
+        StoreResponse::Spawned { pid } => {
+            println!("pid {pid}");
+        }
+        StoreResponse::SpawnFailed { message } => {
+            eprintln!("error: spawn failed: {message}");
+            std::process::exit(1);
+        }
         StoreResponse::Error { message } => {
             eprintln!("error: {message}");
             std::process::exit(1);

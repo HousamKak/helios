@@ -919,6 +919,7 @@ dependencies = [
  "anyhow",
  "helios-events",
  "helios-schema",
+ "libc",
  "rusqlite",
  "serde",
  "serde_json",

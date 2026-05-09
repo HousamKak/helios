@@ -21,6 +21,9 @@ pub mod publisher;
 #[cfg(target_os = "linux")]
 pub mod server;
 
+#[cfg(target_os = "linux")]
+pub mod spawn;
+
 pub use helios_schema::ipc::{StoreRequest, StoreResponse, StoredEvent};
 
 /// Default on-disk path for the entity store's SQLite database.

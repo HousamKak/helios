@@ -130,6 +130,36 @@ pub fn definitions() -> Vec<ToolDef> {
                 "required": ["id", "x", "y"]
             }),
         },
+        ToolDef {
+            name: "helios_spawn_process".to_string(),
+            description: "Launch a process on behalf of the user. \
+                          The store automatically sets WAYLAND_DISPLAY \
+                          and DISPLAY so the spawned program can \
+                          connect to the heliOS compositor. Use to \
+                          open apps: \
+                          helios_spawn_process(command: 'firefox', \
+                          args: ['--no-remote']). The child detaches \
+                          from the store; its window appears on the \
+                          canvas once it commits its first frame."
+                .to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "command": {"type": "string", "description": "Binary name or absolute path. Resolved via PATH if not absolute."},
+                    "args": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Argument vector (default: empty)."
+                    },
+                    "env": {
+                        "type": "object",
+                        "additionalProperties": {"type": "string"},
+                        "description": "Extra environment variables. Take precedence over the auto-set WAYLAND_DISPLAY / DISPLAY."
+                    }
+                },
+                "required": ["command"]
+            }),
+        },
     ]
 }
 
@@ -202,6 +232,29 @@ pub fn build_store_request(
                 .ok_or_else(|| anyhow::anyhow!("y required"))?;
             StoreRequest::MoveEntity { id, x, y }
         }
+        "helios_spawn_process" => {
+            let command = arguments
+                .get("command")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| anyhow::anyhow!("command required"))?
+                .to_string();
+            let args: Vec<String> = arguments
+                .get("args")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let env: Option<std::collections::HashMap<String, String>> =
+                arguments.get("env").and_then(|v| v.as_object()).map(|obj| {
+                    obj.iter()
+                        .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                        .collect()
+                });
+            StoreRequest::SpawnProcess { command, args, env }
+        }
         other => anyhow::bail!("unknown tool: {other}"),
     })
 }
@@ -264,5 +317,49 @@ mod tests {
         assert!(build_store_request("helios_move_entity", &json!({"x": 1.0, "y": 2.0})).is_err());
         assert!(build_store_request("helios_move_entity", &json!({"id": "x", "y": 2.0})).is_err());
         assert!(build_store_request("helios_move_entity", &json!({"id": "x", "x": 1.0})).is_err());
+    }
+
+    #[test]
+    fn build_request_for_spawn_process() {
+        let req = build_store_request(
+            "helios_spawn_process",
+            &json!({
+                "command": "firefox",
+                "args": ["--no-remote", "https://example.com"],
+                "env": {"GTK_THEME": "Adwaita:dark"}
+            }),
+        )
+        .unwrap();
+        match req {
+            helios_schema::ipc::StoreRequest::SpawnProcess { command, args, env } => {
+                assert_eq!(command, "firefox");
+                assert_eq!(args, vec!["--no-remote", "https://example.com"]);
+                let env = env.unwrap();
+                assert_eq!(
+                    env.get("GTK_THEME").map(String::as_str),
+                    Some("Adwaita:dark")
+                );
+            }
+            other => panic!("wrong variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn spawn_process_command_defaults() {
+        // args + env optional; command alone is the minimum.
+        let req = build_store_request("helios_spawn_process", &json!({"command": "ls"})).unwrap();
+        match req {
+            helios_schema::ipc::StoreRequest::SpawnProcess { command, args, env } => {
+                assert_eq!(command, "ls");
+                assert!(args.is_empty());
+                assert!(env.is_none());
+            }
+            other => panic!("wrong variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn spawn_process_requires_command() {
+        assert!(build_store_request("helios_spawn_process", &json!({})).is_err());
     }
 }

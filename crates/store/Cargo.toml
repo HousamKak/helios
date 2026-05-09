@@ -29,5 +29,9 @@ tracing-subscriber.workspace = true
 # self-contained — no system libsqlite3 dependency at runtime.
 rusqlite = { version = "0.32", features = ["bundled", "serde_json"] }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+# libc::setsid in `spawn::spawn_process`'s pre_exec hook.
+libc = "0.2"
+
 [dev-dependencies]
 tempfile = "3"

@@ -32,6 +32,20 @@ pub const DEFAULT_STORE_SOCKET: &str = "/run/helios/store.sock";
 /// Default on-disk path for the entity store's SQLite database.
 pub const DEFAULT_STORE_DB_PATH: &str = "/var/lib/helios/store.sqlite";
 
+/// Runtime directory that hosts heliOS sockets and small text files
+/// describing daemon state (e.g. the compositor's wayland_display
+/// name). Same lifetime as the daemons that share it.
+pub const DEFAULT_RUNTIME_DIR: &str = "/run/helios";
+
+/// File the compositor writes containing the wayland socket name
+/// (e.g. `wayland-1\n`) so other heliOS processes can set
+/// `WAYLAND_DISPLAY` when spawning children. m-2.5.2.
+pub const WAYLAND_DISPLAY_FILE: &str = "/run/helios/wayland_display";
+
+/// File the compositor writes containing the X11 display number
+/// (e.g. `:0\n`) once XWayland reaches Ready. m-2.5.2.
+pub const X11_DISPLAY_FILE: &str = "/run/helios/x11_display";
+
 // ---------------------------------------------------------------------------
 // Store request/response
 // ---------------------------------------------------------------------------
@@ -65,6 +79,19 @@ pub enum StoreRequest {
     /// event onto the bus so the compositor can reposition the
     /// corresponding window. m-8.4 entry point.
     MoveEntity { id: EntityId, x: f64, y: f64 },
+    /// Launch a process on behalf of an agent / user. The store reads
+    /// the compositor's display files (m-2.5.2) and sets
+    /// `WAYLAND_DISPLAY` / `DISPLAY` so the spawned program can
+    /// connect. The child is detached from the store (own session,
+    /// stdio routed to /dev/null) so it outlives the request that
+    /// spawned it. m-2.5.1 entry point.
+    SpawnProcess {
+        command: String,
+        #[serde(default)]
+        args: Vec<String>,
+        #[serde(default)]
+        env: Option<std::collections::HashMap<String, String>>,
+    },
 }
 
 /// One response from the entity store. Tagged like the request side.
@@ -105,6 +132,20 @@ pub enum StoreResponse {
     /// in `Error` is used for SQL-level failures.
     Moved {
         ok: bool,
+    },
+    /// Reply to `StoreRequest::SpawnProcess` on success. `pid` is the
+    /// child's PID — the procfs source will pick it up within one
+    /// poll interval and the events bus will emit `ProcessExec`.
+    Spawned {
+        pid: i32,
+    },
+    /// Reply to `StoreRequest::SpawnProcess` on failure (binary
+    /// missing, permission denied, fork/exec error). Distinct from
+    /// the generic `Error` variant so callers can distinguish "the
+    /// store is fine but the spawn didn't happen" from "the store
+    /// itself errored".
+    SpawnFailed {
+        message: String,
     },
 }
 

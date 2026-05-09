@@ -134,6 +134,33 @@ fn dispatch(
         }
         StoreRequest::Stats => handle_stats(db).map(|r| (r, None)),
         StoreRequest::MoveEntity { id, x, y } => handle_move_entity(db, &id, x, y),
+        StoreRequest::SpawnProcess { command, args, env } => {
+            Ok((handle_spawn_process(&command, &args, env.as_ref()), None))
+        }
+    }
+}
+
+/// m-2.5.1: launch a process on behalf of the agent. Detached child;
+/// stdio routed to /dev/null; own session via setsid. The procfs
+/// source will pick up the exec naturally on its next poll, so we
+/// don't emit any bus events here — that's the point of the
+/// observability surface.
+fn handle_spawn_process(
+    command: &str,
+    args: &[String],
+    env: Option<&std::collections::HashMap<String, String>>,
+) -> StoreResponse {
+    match crate::spawn::spawn_process(command, args, env) {
+        Ok(pid) => {
+            tracing::info!(%command, pid, "store: spawned process");
+            StoreResponse::Spawned { pid }
+        }
+        Err(err) => {
+            tracing::warn!(%command, ?err, "store: spawn failed");
+            StoreResponse::SpawnFailed {
+                message: format!("{err}"),
+            }
+        }
     }
 }
 
