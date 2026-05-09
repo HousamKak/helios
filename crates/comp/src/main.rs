@@ -34,9 +34,7 @@ fn main() -> anyhow::Result<()> {
         )
         .init();
 
-    tracing::info!(
-        "helios-comp: Phase 2 month-3 — wl_compositor + wl_shm + xdg_shell advertised"
-    );
+    tracing::info!("helios-comp: Phase 2 month-3 — wl_compositor + wl_shm advertised");
 
     let mut display: Display<helios_comp::WaylandState> = Display::new()?;
     let mut dh = display.handle();
@@ -53,7 +51,7 @@ fn main() -> anyhow::Result<()> {
         viewport_w = state.canvas.viewport.screen_width,
         viewport_h = state.canvas.viewport.screen_height,
         placements = state.canvas.placement_count(),
-        "initial state ready (wl_compositor + wl_subcompositor + wl_shm + xdg_shell live)"
+        "initial state ready (wl_compositor + wl_subcompositor + wl_shm live)"
     );
 
     let runtime = std::env::var("HELIOS_COMP_LIFETIME_SECS")

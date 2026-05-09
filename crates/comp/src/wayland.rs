@@ -19,7 +19,6 @@
 use smithay::reexports::wayland_server::DisplayHandle;
 use smithay::reexports::wayland_server::backend::ClientData;
 use smithay::wayland::compositor::{CompositorClientState, CompositorState};
-use smithay::wayland::shell::xdg::XdgShellState;
 use smithay::wayland::shm::ShmState;
 
 use crate::HeliosState as CanvasState;
@@ -39,13 +38,8 @@ pub struct WaylandState {
     /// buffer pools. ARGB8888 + XRGB8888 are mandatory and always
     /// advertised; we add no extras for now.
     pub shm_state: ShmState,
-
-    /// `xdg_wm_base` global state — toplevel windows and popups.
-    /// Once a client binds this and creates an xdg_toplevel, we
-    /// receive `new_toplevel` and (in future commits) place a
-    /// `Window` on the `Space`.
-    pub xdg_shell_state: XdgShellState,
     // Future fields:
+    //   pub xdg_shell_state: smithay::wayland::shell::xdg::XdgShellState,
     //   pub seat_state: smithay::wayland::seat::SeatState<Self>,
     //   pub output_state: smithay::wayland::output::OutputState,
     //   pub data_device_state: smithay::wayland::selection::data_device::DataDeviceState,
@@ -56,13 +50,12 @@ pub struct WaylandState {
 
 impl WaylandState {
     /// Construct fresh state. Requires the display handle to register
-    /// each global protocol.
+    /// the compositor and shm globals.
     pub fn new(display_handle: &DisplayHandle) -> Self {
         Self {
             canvas: CanvasState::new(),
             compositor_state: CompositorState::new::<Self>(display_handle),
             shm_state: ShmState::new::<Self>(display_handle, Vec::new()),
-            xdg_shell_state: XdgShellState::new::<Self>(display_handle),
         }
     }
 }
