@@ -150,10 +150,7 @@ impl EntityPlacement {
     /// Build from a CanvasEntity row from the store.
     pub fn from_row(row: &helios_schema::CanvasEntity) -> Self {
         Self {
-            world_pos: WorldPoint {
-                x: row.x,
-                y: row.y,
-            },
+            world_pos: WorldPoint { x: row.x, y: row.y },
             world_scale: row.scale,
             world_size: row.width.zip(row.height),
             z: row.z,
@@ -210,11 +207,9 @@ mod tests {
     fn zoom_around_keeps_anchor_stable() {
         let mut vp = Viewport::default();
         let anchor = WorldPoint { x: 800.0, y: 400.0 };
-        let world_under_anchor_before =
-            vp.world_to_screen_transform().invert_point(anchor);
+        let world_under_anchor_before = vp.world_to_screen_transform().invert_point(anchor);
         vp.zoom_around(anchor, 2.0);
-        let world_under_anchor_after =
-            vp.world_to_screen_transform().invert_point(anchor);
+        let world_under_anchor_after = vp.world_to_screen_transform().invert_point(anchor);
         assert!((world_under_anchor_before.x - world_under_anchor_after.x).abs() < 1e-3);
         assert!((world_under_anchor_before.y - world_under_anchor_after.y).abs() < 1e-3);
         assert_eq!(vp.zoom, 2.0);

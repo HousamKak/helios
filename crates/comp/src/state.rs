@@ -27,7 +27,6 @@ pub struct HeliosState {
     /// The desktop the viewport is currently centred on. Pan-between-
     /// desktops swaps this and animates the viewport translation.
     pub active_desktop_id: Option<EntityId>,
-
     // ---------------------------------------------------------------
     // Future fields, landing as smithay integration progresses:
     //
