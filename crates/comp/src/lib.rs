@@ -14,6 +14,9 @@ pub mod render;
 pub mod state;
 
 #[cfg(target_os = "linux")]
+pub mod backend;
+
+#[cfg(target_os = "linux")]
 pub mod handlers;
 
 #[cfg(target_os = "linux")]
@@ -23,5 +26,7 @@ pub use canvas::{CanvasTransform, EntityPlacement, Viewport, WorldPoint};
 pub use render::{RenderItem, RenderItemKind, RenderPlan};
 pub use state::HeliosState;
 
+#[cfg(target_os = "linux")]
+pub use backend::CompBackend;
 #[cfg(target_os = "linux")]
 pub use wayland::{ClientState, WaylandState};
