@@ -5,13 +5,8 @@
 //! the backend and event pump; main owns the calloop loop and state.
 //!
 //! `winit` here is *backend_winit* — running heliOS-comp inside an
-//! existing Wayland session. The bare-metal DRM/KMS backend lands in
-//! month-6+ (per ADR 0004); this nested-Wayland path is what we use
-//! for development and for the Phase 2 demo.
-//!
-//! No damage tracking yet (chunk 3 adds `OutputDamageTracker`). No
-//! surface texture rendering (chunk 2). Just an empty render loop
-//! clearing to a heliOS-canvas background colour each frame.
+//! existing Wayland session. The bare-metal DRM/KMS backend (`drm.rs`)
+//! lands in m-6.
 
 use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::backend::winit::{Error as WinitError, WinitEventLoop, WinitGraphicsBackend};
