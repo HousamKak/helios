@@ -92,6 +92,25 @@ pub struct WaylandState {
     /// dispatcher to forward keystrokes, and by XdgShellHandler to
     /// move keyboard focus when a new toplevel arrives.
     pub keyboard: KeyboardHandle<Self>,
+
+    /// Last-known pointer location in output-logical coordinates.
+    /// Updated on every PointerMotionAbsolute event. m-5 chunk 6 uses
+    /// it as the anchor for cursor-centred zoom and as the previous-
+    /// position reference for middle-drag pan deltas.
+    pub pointer_pos: smithay::utils::Point<f64, smithay::utils::Logical>,
+
+    /// True while the user is holding middle mouse button to pan
+    /// the canvas. Each subsequent PointerMotionAbsolute while this
+    /// is set updates `viewport.center` by the pixel delta divided
+    /// by zoom.
+    pub pan_dragging: bool,
+
+    /// Saturating counter for full-output redraws. Bumped to 4 on
+    /// viewport changes (pan/zoom) and on output mode changes
+    /// (resize). While > 0, the render loop passes age=0 to
+    /// `space::render_output`, which forces a full redraw and
+    /// clears stale pixels. main.rs decrements this each frame.
+    pub full_redraw: u8,
     //   pub data_device_state: smithay::wayland::selection::data_device::DataDeviceState,
     //   pub space: smithay::desktop::Space<smithay::desktop::Window>,
     //   pub renderer: Option<smithay::backend::renderer::gles::GlesRenderer>,
@@ -160,7 +179,42 @@ impl WaylandState {
             seat,
             pointer,
             keyboard,
+            pointer_pos: smithay::utils::Point::from((0.0f64, 0.0f64)),
+            pan_dragging: false,
+            full_redraw: 1,
         }
+    }
+
+    /// Re-map every window on the space using the current viewport
+    /// transform applied to the world origin. m-5 chunk 6 calls this
+    /// after every viewport mutation; m-5 chunk 7 will replace this
+    /// with per-window world coordinates so each window's position is
+    /// authoritative rather than implicitly ORIGIN.
+    pub fn reapply_viewport_to_windows(&mut self) {
+        let screen_pos = self.world_to_screen(crate::WorldPoint::ORIGIN);
+        let windows: Vec<_> = self.space.elements().cloned().collect();
+        for window in windows {
+            self.space.map_element(window, screen_pos, false);
+        }
+        self.full_redraw = 4;
+    }
+
+    /// Pan the viewport by a screen-pixel delta (e.g. middle-mouse
+    /// drag) and re-map windows so the change is visible next frame.
+    pub fn pan_screen(&mut self, dx: f64, dy: f64) {
+        self.canvas.viewport.pan_by_screen_pixels(dx, dy);
+        self.reapply_viewport_to_windows();
+    }
+
+    /// Zoom the viewport around the current cursor position.
+    /// `multiplier > 1.0` zooms in, `< 1.0` zooms out.
+    pub fn zoom_at_cursor(&mut self, multiplier: f64) {
+        let anchor = crate::WorldPoint {
+            x: self.pointer_pos.x,
+            y: self.pointer_pos.y,
+        };
+        self.canvas.viewport.zoom_around(anchor, multiplier);
+        self.reapply_viewport_to_windows();
     }
 
     /// Project a world-space point onto the screen using the active
@@ -223,6 +277,18 @@ impl WaylandState {
                 // Scale=1 so physical→logical is a direct cast.
                 let logical_size = output_size.to_logical(1);
                 let pos = event.position_transformed(logical_size);
+
+                // m-5 chunk 6: while middle-button drag is active,
+                // each motion delta pans the viewport.
+                if self.pan_dragging {
+                    let dx = pos.x - self.pointer_pos.x;
+                    let dy = pos.y - self.pointer_pos.y;
+                    if dx != 0.0 || dy != 0.0 {
+                        self.pan_screen(dx, dy);
+                    }
+                }
+                self.pointer_pos = pos;
+
                 let serial = SERIAL_COUNTER.next_serial();
                 let time = Event::time_msec(&event);
                 let ptr = self.pointer.clone();
@@ -245,6 +311,16 @@ impl WaylandState {
                     ButtonState::Pressed => smithay::backend::input::ButtonState::Pressed,
                     ButtonState::Released => smithay::backend::input::ButtonState::Released,
                 };
+
+                // m-5 chunk 6: middle button (BTN_MIDDLE = 0x112)
+                // toggles the pan drag. Other buttons forward to the
+                // focused surface as usual.
+                const BTN_MIDDLE: u32 = 0x112;
+                if button == BTN_MIDDLE {
+                    self.pan_dragging =
+                        matches!(state, smithay::backend::input::ButtonState::Pressed);
+                }
+
                 let ptr = self.pointer.clone();
                 ptr.button(
                     self,
@@ -257,10 +333,30 @@ impl WaylandState {
                 );
                 ptr.frame(self);
             }
+            InputEvent::PointerAxis { event } => {
+                // m-5 chunk 6: scroll wheel zooms around the cursor.
+                // Wheel "up" (negative vertical scroll on most
+                // backends) zooms in; "down" zooms out. Multiplier
+                // 1.1 / 0.9 — matches the m-1 canvas convention. We
+                // also forward the axis event to the focused surface
+                // so apps that handle scroll (text editors, terminals)
+                // still see it.
+                use smithay::backend::input::Axis;
+                use smithay::backend::input::PointerAxisEvent;
+                if let Some(amount) = event.amount(Axis::Vertical) {
+                    if amount < 0.0 {
+                        self.zoom_at_cursor(1.1);
+                    } else if amount > 0.0 {
+                        self.zoom_at_cursor(0.9);
+                    }
+                }
+                // Surface-side axis forwarding (so terminals scroll
+                // their buffer) is m-6+ work — needs source-frame
+                // bookkeeping smithay's pointer handle expects.
+            }
             _ => {
-                // PointerMotion (relative), PointerAxis, Touch, Tablet,
-                // GestureSwipe* — handled in m-5 (gestures) and m-6+
-                // (touch / tablet).
+                // PointerMotion (relative), Touch, Tablet,
+                // GestureSwipe* — handled in m-6+ (touch / tablet).
             }
         }
     }

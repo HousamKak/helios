@@ -135,13 +135,13 @@ fn main() -> anyhow::Result<()> {
     // pump with the render step; calloop wraps the wayland side
     // only.
     //
-    // `full_redraw` is a saturating counter incremented on events
-    // that invalidate previous frames' contents (resize, scale
-    // change). While > 0, we pass age=0 to render_output, which
+    // `state.full_redraw` is a saturating counter incremented on
+    // events that invalidate previous frames' contents (resize,
+    // pan, zoom). While > 0, we pass age=0 to render_output, which
     // forces a full redraw and restores correctness; once it ticks
     // back to zero, normal `buffer_age`-based partial redraws
-    // resume. Same pattern anvil uses (anvil/src/winit.rs:267).
-    let mut full_redraw: u8 = 1;
+    // resume. Lives on state because state-side methods (zoom,
+    // pan) need to bump it.
     loop {
         // 1. Pump winit events. Resized + CloseRequested handled
         //    here; Input is logged for now (chunk 4 forwards it
@@ -163,7 +163,7 @@ fn main() -> anyhow::Result<()> {
                 state.output.set_preferred(new_mode);
                 // Force a full redraw next frame: previous frame's
                 // pixels are now meaningless.
-                full_redraw = 4;
+                state.full_redraw = 4;
             }
             WinitEvent::CloseRequested => {
                 tracing::info!("winit close requested");
@@ -193,8 +193,8 @@ fn main() -> anyhow::Result<()> {
         //    forces a full redraw; we use age=0 only when
         //    `full_redraw` is non-zero (just resized, etc.) and let
         //    the normal `backend.buffer_age()` logic handle the rest.
-        full_redraw = full_redraw.saturating_sub(1);
-        let age = if full_redraw > 0 {
+        state.full_redraw = state.full_redraw.saturating_sub(1);
+        let age = if state.full_redraw > 0 {
             0
         } else {
             comp_backend.backend.buffer_age().unwrap_or(0)
