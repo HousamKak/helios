@@ -24,10 +24,10 @@ use smithay::backend::renderer::utils::on_commit_buffer_handler;
 use smithay::desktop::Window;
 use smithay::input::pointer::CursorImageStatus;
 use smithay::input::{Seat, SeatHandler, SeatState};
-use smithay::reexports::wayland_server::Client;
 use smithay::reexports::wayland_server::protocol::wl_buffer::WlBuffer;
 use smithay::reexports::wayland_server::protocol::wl_seat::WlSeat;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
+use smithay::reexports::wayland_server::{Client, Resource};
 use smithay::utils::Serial;
 use smithay::wayland::buffer::BufferHandler;
 use smithay::wayland::compositor::{CompositorClientState, CompositorHandler, CompositorState};
@@ -155,18 +155,36 @@ impl XdgShellHandler for WaylandState {
         // Wrap the toplevel in a `Window` and place it on the space
         // at the world origin transformed by the active viewport.
         // Default viewport (zoom=1.0, centre=(0,0)) means a window
-        // at world (0,0) renders at screen-centre — that's the m-5
-        // spawn policy from ADR 0004 (centred-with-stagger; the
-        // stagger lands when there's more than one window, m-7+).
+        // at world (0,0) renders at screen-centre — m-5 chunk 5's
+        // spawn policy from ADR 0004.
         //
         // The initial xdg configure is sent by smithay's xdg_shell
         // automatically when the first commit on an unconfigured
         // surface arrives — we don't call surface.send_configure
         // here.
         let wl_surface = surface.wl_surface().clone();
+        let surface_id = wl_surface.id();
         let window = Window::new_wayland_window(surface);
         let screen_pos = self.world_to_screen(crate::WorldPoint::ORIGIN);
         self.space.map_element(window, screen_pos, true);
+
+        // m-5 chunk 7: bind a fresh canvas EntityId to this surface
+        // and record its world position. The entity_id is the
+        // identifier external producers (skills, agents, applets)
+        // use to address this window via helios-store's
+        // canvas_entities table.
+        //
+        // Bus-side emission of `SurfaceMapped { surface_id,
+        // client_pid, kind }` is deferred — the events daemon is
+        // currently push-only fan-out; ingress for compositor-emitted
+        // events is m-6+ infrastructure work. The map is in-process
+        // for now and chunk 8 wires the consumer side via
+        // `move_entity`.
+        let entity_id = helios_schema::generate_id();
+        self.surface_to_entity
+            .insert(surface_id.clone(), entity_id.clone());
+        self.entity_to_world
+            .insert(entity_id.clone(), crate::WorldPoint::ORIGIN);
 
         // m-4 chunk 4: give the new toplevel keyboard focus so
         // typing into it works immediately. Until we have a real
@@ -175,11 +193,24 @@ impl XdgShellHandler for WaylandState {
         let serial = smithay::utils::SERIAL_COUNTER.next_serial();
         let kbd = self.keyboard.clone();
         kbd.set_focus(self, Some(wl_surface), serial);
-        tracing::info!(?screen_pos, "xdg: new toplevel mapped + focused");
+        tracing::info!(?screen_pos, %entity_id, "xdg: new toplevel mapped + focused");
     }
 
     fn new_popup(&mut self, _surface: PopupSurface, _positioner: PositionerState) {
         tracing::info!("xdg: new popup surface");
+    }
+
+    fn toplevel_destroyed(&mut self, surface: ToplevelSurface) {
+        // m-5 chunk 7: drop the canvas entity binding when the
+        // client disconnects. Bus-side `SurfaceUnmapped` emission
+        // deferred (see new_toplevel comment).
+        let surface_id = surface.wl_surface().id();
+        if let Some(entity_id) = self.surface_to_entity.remove(&surface_id) {
+            self.entity_to_world.remove(&entity_id);
+            tracing::info!(%entity_id, "xdg: toplevel destroyed; entity unbound");
+        }
+        // smithay's space.refresh() (called from CompositorHandler::commit)
+        // prunes the dead window automatically; no explicit unmap_elem.
     }
 
     fn grab(&mut self, _surface: PopupSurface, _seat: WlSeat, _serial: Serial) {

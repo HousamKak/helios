@@ -16,18 +16,24 @@
 //!   * Subscription to `helios-events` to react to entity changes
 //!   * Periodic `helios-store` queries to refresh the placement cache
 
+use std::collections::HashMap;
+
+use helios_schema::EntityId;
 use smithay::backend::renderer::damage::OutputDamageTracker;
 use smithay::desktop::{Space, Window};
 use smithay::input::keyboard::{KeyboardHandle, XkbConfig};
 use smithay::input::pointer::PointerHandle;
 use smithay::input::{Seat, SeatState};
 use smithay::output::{Mode, Output, PhysicalProperties, Scale, Subpixel};
-use smithay::reexports::wayland_server::DisplayHandle;
-use smithay::reexports::wayland_server::backend::ClientData;
+use smithay::reexports::wayland_server::backend::{ClientData, ObjectId};
+use smithay::reexports::wayland_server::{DisplayHandle, Resource};
 use smithay::utils::Transform;
 use smithay::wayland::compositor::{CompositorClientState, CompositorState};
+use smithay::wayland::seat::WaylandFocus;
 use smithay::wayland::shell::xdg::XdgShellState;
 use smithay::wayland::shm::ShmState;
+
+use crate::WorldPoint;
 
 use crate::HeliosState as CanvasState;
 
@@ -111,6 +117,22 @@ pub struct WaylandState {
     /// `space::render_output`, which forces a full redraw and
     /// clears stale pixels. main.rs decrements this each frame.
     pub full_redraw: u8,
+
+    /// `wl_surface ObjectId` → canonical `EntityId` map. Each
+    /// xdg_toplevel becomes a canvas entity at construction time.
+    /// The map is runtime-only (per ADR 0004): wayland surfaces are
+    /// ephemeral, so persisting `surface_id → entity_id` would
+    /// produce stale rows on every client crash. Removed on
+    /// `toplevel_destroyed`.
+    pub surface_to_entity: HashMap<ObjectId, EntityId>,
+
+    /// Per-entity world position. Used by
+    /// `reapply_viewport_to_windows` so each window draws at its own
+    /// world coordinate transformed by the active viewport (rather
+    /// than every window collapsing onto the world origin like in
+    /// chunk 6). Updated by m-5 chunk 8 when an external producer
+    /// (skill / agent / applet) writes a new position.
+    pub entity_to_world: HashMap<EntityId, WorldPoint>,
     //   pub data_device_state: smithay::wayland::selection::data_device::DataDeviceState,
     //   pub space: smithay::desktop::Space<smithay::desktop::Window>,
     //   pub renderer: Option<smithay::backend::renderer::gles::GlesRenderer>,
@@ -182,18 +204,60 @@ impl WaylandState {
             pointer_pos: smithay::utils::Point::from((0.0f64, 0.0f64)),
             pan_dragging: false,
             full_redraw: 1,
+            surface_to_entity: HashMap::new(),
+            entity_to_world: HashMap::new(),
+        }
+    }
+
+    /// Look up a window in the space by its `wl_surface` ObjectId.
+    /// Returns the cloned Window so the caller can call `space.map_element`
+    /// on it. Cheap — Window is a thin Arc-clone.
+    pub fn window_by_surface(&self, id: &ObjectId) -> Option<Window> {
+        self.space
+            .elements()
+            .find(|w| w.wl_surface().map(|s| s.id() == *id).unwrap_or(false))
+            .cloned()
+    }
+
+    /// Move the entity associated with `id` to a new world position.
+    /// Re-maps the corresponding window so the change is visible
+    /// next frame. m-5 chunk 8 will call this on every EntityPlaced
+    /// event from the bus / store.
+    pub fn move_entity(&mut self, id: &EntityId, world: WorldPoint) {
+        self.entity_to_world.insert(id.clone(), world);
+        // Find the surface bound to this entity, if any, and re-map.
+        let surface_id = self
+            .surface_to_entity
+            .iter()
+            .find(|(_, eid)| *eid == id)
+            .map(|(sid, _)| sid.clone());
+        if let Some(sid) = surface_id
+            && let Some(window) = self.window_by_surface(&sid)
+        {
+            let screen_pos = self.world_to_screen(world);
+            self.space.map_element(window, screen_pos, false);
+            self.full_redraw = 4;
         }
     }
 
     /// Re-map every window on the space using the current viewport
-    /// transform applied to the world origin. m-5 chunk 6 calls this
-    /// after every viewport mutation; m-5 chunk 7 will replace this
-    /// with per-window world coordinates so each window's position is
-    /// authoritative rather than implicitly ORIGIN.
+    /// transform applied to each window's per-entity world position.
+    /// m-5 chunk 7: each window has an authoritative world position
+    /// in `entity_to_world`; if a window has no entity binding (rare
+    /// race during destroy), it falls back to the world origin.
     pub fn reapply_viewport_to_windows(&mut self) {
-        let screen_pos = self.world_to_screen(crate::WorldPoint::ORIGIN);
-        let windows: Vec<_> = self.space.elements().cloned().collect();
-        for window in windows {
+        // Snapshot windows + their world positions so we can mutate
+        // the space inside the loop.
+        let mut targets: Vec<(Window, (i32, i32))> = Vec::new();
+        for window in self.space.elements().cloned().collect::<Vec<_>>() {
+            let world = window
+                .wl_surface()
+                .and_then(|s| self.surface_to_entity.get(&s.id()).cloned())
+                .and_then(|eid| self.entity_to_world.get(&eid).copied())
+                .unwrap_or(WorldPoint::ORIGIN);
+            targets.push((window, self.world_to_screen(world)));
+        }
+        for (window, screen_pos) in targets {
             self.space.map_element(window, screen_pos, false);
         }
         self.full_redraw = 4;
