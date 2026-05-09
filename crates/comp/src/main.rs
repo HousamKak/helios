@@ -50,21 +50,26 @@ fn main() -> anyhow::Result<()> {
         .init();
 
     // Backend selection. `HELIOS_COMP_BACKEND` overrides the default;
-    // when unset, we use winit. The DRM path is being built up
-    // incrementally across m-6.4..m-6.9 — for now `=drm` returns the
-    // NotImplemented error from the scaffold so the dispatch is
-    // testable end-to-end.
+    // when unset, we use winit. m-6.7 onward, the DRM path is a real
+    // calloop-driven event loop; client surfaces are walked starting
+    // m-6.9.
     let requested_backend =
         std::env::var("HELIOS_COMP_BACKEND").unwrap_or_else(|_| "winit".to_string());
     tracing::info!(backend = %requested_backend, "backend selected");
     if requested_backend == "drm" {
-        let result = helios_comp::backend::drm::DrmBackend::init();
-        return match result {
-            Ok(_) => Err(anyhow::anyhow!(
-                "DRM backend constructed but no render loop yet (m-6.9)"
-            )),
-            Err(err) => Err(anyhow::anyhow!("DRM backend: {err}")),
-        };
+        let backend = helios_comp::backend::drm::DrmBackend::init()
+            .map_err(|err| anyhow::anyhow!("DRM backend: {err}"))?;
+
+        let display: smithay::reexports::wayland_server::Display<helios_comp::WaylandState> =
+            smithay::reexports::wayland_server::Display::new()?;
+        let dh = display.handle();
+        let state = helios_comp::WaylandState::new(&dh);
+
+        let runtime = std::env::var("HELIOS_COMP_LIFETIME_SECS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0u64);
+        return helios_comp::backend::drm::run::run(backend, display, state, runtime);
     }
     if requested_backend != "winit" {
         return Err(anyhow::anyhow!(

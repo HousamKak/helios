@@ -21,6 +21,7 @@
 
 pub mod device;
 pub mod output;
+pub mod run;
 pub mod session;
 
 use thiserror::Error;
@@ -37,8 +38,6 @@ pub enum DrmBackendError {
     Device(#[from] DeviceError),
     #[error("DRM output: {0}")]
     Output(#[from] OutputError),
-    #[error("page-flip event source not yet implemented (m-6.7)")]
-    PageFlipNotImplemented,
 }
 
 /// Owner type for the DRM backend. Each chunk fills in more fields:
@@ -61,27 +60,17 @@ pub struct DrmBackend {
 }
 
 impl DrmBackend {
-    /// Initialise the DRM backend. m-6.6 enumerates connectors and
-    /// builds a `DrmCompositor` for the first connected one. It then
-    /// returns `PageFlipNotImplemented` so the dispatch is still
-    /// end-to-end testable on a real TTY: trace should show
-    /// "libseat session opened seat=seat0",
-    /// "DRM device opened, GBM allocator + EGL display + GLES renderer ready",
-    /// and "DRM output: connector ...; m-6.7 picks up the page-flip
-    /// loop next.
+    /// Initialise the DRM backend up to the point of being ready to
+    /// run. The caller picks up from here by handing the backend to
+    /// `run::run` along with a wayland Display + WaylandState.
     pub fn init() -> Result<Self, DrmBackendError> {
         let mut session = CompSession::open()?;
         let mut device = DrmRenderDevice::open(&mut session)?;
         let primary_output = OutputData::first_connected(&mut device)?;
-        let outputs = vec![primary_output];
-        // m-6.7 will continue here: insert the DrmDeviceNotifier into
-        // calloop and route page-flip / vblank events into the render
-        // tick.
-        let _backend = Self {
+        Ok(Self {
             session,
             device,
-            outputs,
-        };
-        Err(DrmBackendError::PageFlipNotImplemented)
+            outputs: vec![primary_output],
+        })
     }
 }
