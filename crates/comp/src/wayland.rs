@@ -19,6 +19,7 @@
 use smithay::reexports::wayland_server::DisplayHandle;
 use smithay::reexports::wayland_server::backend::ClientData;
 use smithay::wayland::compositor::{CompositorClientState, CompositorState};
+use smithay::wayland::shm::ShmState;
 
 use crate::HeliosState as CanvasState;
 
@@ -32,8 +33,12 @@ pub struct WaylandState {
     /// `wl_compositor` + `wl_subcompositor` global state. Owned per
     /// server, shared across clients.
     pub compositor_state: CompositorState,
+
+    /// `wl_shm` global state. Tracks supported formats and validates
+    /// buffer pools. ARGB8888 + XRGB8888 are mandatory and always
+    /// advertised; we add no extras for now.
+    pub shm_state: ShmState,
     // Future fields:
-    //   pub shm_state: smithay::wayland::shm::ShmState,
     //   pub xdg_shell_state: smithay::wayland::shell::xdg::XdgShellState,
     //   pub seat_state: smithay::wayland::seat::SeatState<Self>,
     //   pub output_state: smithay::wayland::output::OutputState,
@@ -45,11 +50,12 @@ pub struct WaylandState {
 
 impl WaylandState {
     /// Construct fresh state. Requires the display handle to register
-    /// the compositor global.
+    /// the compositor and shm globals.
     pub fn new(display_handle: &DisplayHandle) -> Self {
         Self {
             canvas: CanvasState::new(),
             compositor_state: CompositorState::new::<Self>(display_handle),
+            shm_state: ShmState::new::<Self>(display_handle, Vec::new()),
         }
     }
 }

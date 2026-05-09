@@ -21,8 +21,11 @@
 //! all at once.
 
 use smithay::reexports::wayland_server::Client;
+use smithay::reexports::wayland_server::protocol::wl_buffer::WlBuffer;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
+use smithay::wayland::buffer::BufferHandler;
 use smithay::wayland::compositor::{CompositorClientState, CompositorHandler, CompositorState};
+use smithay::wayland::shm::{ShmHandler, ShmState};
 
 use crate::wayland::{ClientState, WaylandState};
 
@@ -51,3 +54,27 @@ impl CompositorHandler for WaylandState {
 }
 
 smithay::delegate_compositor!(WaylandState);
+
+// ===========================================================================
+// wl_buffer (shared by every protocol that handles client buffers)
+// ===========================================================================
+
+impl BufferHandler for WaylandState {
+    fn buffer_destroyed(&mut self, _buffer: &WlBuffer) {
+        // Phase 2 month-3: nothing tracks buffer ownership yet.
+        // The renderer (month-4+) will release any cached texture
+        // imported from this buffer here.
+    }
+}
+
+// ===========================================================================
+// wl_shm
+// ===========================================================================
+
+impl ShmHandler for WaylandState {
+    fn shm_state(&self) -> &ShmState {
+        &self.shm_state
+    }
+}
+
+smithay::delegate_shm!(WaylandState);
