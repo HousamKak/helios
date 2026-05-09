@@ -141,6 +141,14 @@ pub struct WaylandState {
     /// here to start the X11Wm.
     pub xwayland: Option<crate::xwayland::XwmState>,
 
+    /// EntityId of the auto-spawned default terminal (m-2.5.2). The
+    /// first wayland-native toplevel that maps after compositor
+    /// startup is tagged here; `Super+Space` (m-2.5.3) re-centres the
+    /// viewport on it and restores keyboard focus. `None` until the
+    /// first toplevel maps, or if the default-terminal spawn was
+    /// disabled / failed.
+    pub default_terminal_entity: Option<helios_schema::EntityId>,
+
     /// Active X11 window manager. Constructed in the
     /// `XWaylandEvent::Ready` handler once we have the privileged X11
     /// socket. `None` when XWayland is disabled or not yet ready.
@@ -242,6 +250,90 @@ impl WaylandState {
             ),
             events_tx: None,
             display_handle: display_handle.clone(),
+            default_terminal_entity: None,
+        }
+    }
+
+    /// Tag the first non-OR toplevel that maps as the default
+    /// terminal so `Super+Space` (m-2.5.3) can find it later.
+    /// Idempotent: only the first call wins; subsequent toplevels
+    /// don't displace the binding. m-2.5.2 spawns the auto-terminal
+    /// before any other client connects, so the first map is
+    /// reliably the foot/helios-shell window.
+    pub fn mark_default_terminal_if_first(&mut self, entity_id: &helios_schema::EntityId) {
+        if self.default_terminal_entity.is_none() {
+            self.default_terminal_entity = Some(entity_id.clone());
+            tracing::info!(%entity_id, "tagged as default terminal");
+        }
+    }
+
+    /// m-2.5.3: re-centre + re-focus the default terminal. No-op when
+    /// no terminal has been tagged (the auto-spawn was disabled or
+    /// hasn't mapped yet).
+    pub fn focus_default_terminal(&mut self) {
+        let Some(entity_id) = self.default_terminal_entity.clone() else {
+            tracing::debug!("Super+Space: no default terminal tagged; ignoring");
+            return;
+        };
+
+        // Pan the viewport so the entity's world position lands at
+        // screen-centre. World position lives in `entity_to_world`;
+        // viewport.center is what we adjust.
+        let world = self
+            .entity_to_world
+            .get(&entity_id)
+            .copied()
+            .unwrap_or(WorldPoint::ORIGIN);
+        self.canvas.viewport.center = world;
+        self.reapply_viewport_to_windows();
+
+        // Find the wl_surface for this entity and set keyboard focus.
+        let surface_id = self
+            .surface_to_entity
+            .iter()
+            .find(|(_, eid)| **eid == entity_id)
+            .map(|(sid, _)| sid.clone());
+        if let Some(sid) = surface_id
+            && let Some(window) = self.window_by_surface(&sid)
+            && let Some(wl) = window.wl_surface()
+        {
+            let serial = smithay::utils::SERIAL_COUNTER.next_serial();
+            let kbd = self.keyboard.clone();
+            kbd.set_focus(self, Some(wl.into_owned()), serial);
+            self.full_redraw = 4;
+            tracing::info!(%entity_id, "Super+Space: focused default terminal");
+        }
+    }
+
+    /// m-2.5.3 bonus: send a graceful close request to the focused
+    /// surface. The client may ignore it (rare for well-behaved apps).
+    pub fn close_focused_window(&mut self) {
+        let kbd = self.keyboard.clone();
+        let focused = kbd.current_focus();
+        let Some(focus) = focused else {
+            return;
+        };
+        let target = self
+            .space
+            .elements()
+            .find(|w| w.wl_surface().map(|s| *s == focus).unwrap_or(false))
+            .cloned();
+        if let Some(window) = target {
+            // Wayland-native xdg_toplevels respond to send_close().
+            // X11 surfaces have their own close path via
+            // `X11Surface::close`. WindowSurface gives us both via
+            // its underlying() accessor.
+            match window.underlying_surface() {
+                smithay::desktop::WindowSurface::Wayland(toplevel) => {
+                    toplevel.send_close();
+                    tracing::info!("Super+Q: sent close to xdg toplevel");
+                }
+                smithay::desktop::WindowSurface::X11(x11) => {
+                    if let Err(err) = x11.close() {
+                        tracing::warn!(?err, "Super+Q: x11 close failed");
+                    }
+                }
+            }
         }
     }
 
@@ -386,14 +478,44 @@ impl WaylandState {
 
         match event {
             InputEvent::Keyboard { event } => {
+                use smithay::backend::input::KeyState;
                 let serial = SERIAL_COUNTER.next_serial();
                 let time = Event::time_msec(&event);
                 let key_code = event.key_code();
                 let key_state = event.state();
                 let kbd = self.keyboard.clone();
-                kbd.input::<(), _>(self, key_code, key_state, serial, time, |_, _, _| {
-                    FilterResult::Forward
-                });
+
+                // m-2.5.3: intercept compositor-level shortcuts on
+                // key-press. We only act on Pressed events (releases
+                // pass through unchanged) so Super+Space doesn't
+                // double-fire on key-up. The filter callback
+                // returns Intercept(action) when matched; we apply
+                // the action after `kbd.input` returns.
+                let intercepted = kbd.input::<crate::keybindings::KeyAction, _>(
+                    self,
+                    key_code,
+                    key_state,
+                    serial,
+                    time,
+                    |_state, modifiers, keysym| {
+                        if !matches!(key_state, KeyState::Pressed) {
+                            return FilterResult::Forward;
+                        }
+                        match crate::keybindings::try_handle(modifiers, keysym.modified_sym()) {
+                            Some(action) => FilterResult::Intercept(action),
+                            None => FilterResult::Forward,
+                        }
+                    },
+                );
+                match intercepted {
+                    Some(crate::keybindings::KeyAction::FocusDefaultTerminal) => {
+                        self.focus_default_terminal();
+                    }
+                    Some(crate::keybindings::KeyAction::CloseFocused) => {
+                        self.close_focused_window();
+                    }
+                    None => {}
+                }
             }
             InputEvent::PointerMotionAbsolute { event } => {
                 // Winit emits this for nested-Wayland mouse motion

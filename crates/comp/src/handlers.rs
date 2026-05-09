@@ -179,6 +179,12 @@ impl XdgShellHandler for WaylandState {
         self.entity_to_world
             .insert(entity_id.clone(), crate::WorldPoint::ORIGIN);
 
+        // m-2.5.3: tag the first-mapped toplevel as the default
+        // terminal so Super+Space can find it. The auto-spawn from
+        // m-2.5.2 connects before any other client, so the first
+        // toplevel is reliably the foot/helios-shell window.
+        self.mark_default_terminal_if_first(&entity_id);
+
         // m-8.3: announce the surface lifecycle on the events bus.
         // client_pid comes from the wayland-server credentials of the
         // owning client. None when the credentials aren't available

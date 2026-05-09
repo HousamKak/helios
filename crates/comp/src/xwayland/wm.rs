@@ -70,6 +70,9 @@ impl XWaylandShellHandler for WaylandState {
             .insert(wl_surface.id(), entity_id.clone());
         self.entity_to_world
             .insert(entity_id.clone(), crate::WorldPoint::ORIGIN);
+        // m-2.5.3: an X11 toplevel can also be the default terminal
+        // (e.g. xterm fallback when foot isn't installed).
+        self.mark_default_terminal_if_first(&entity_id);
         // m-7.5: log the client's decoration preference. heliOS
         // doesn't draw chrome yet (m-8), and we can't actively set
         // `_MOTIF_WM_HINTS` to NoDecoration via the smithay 0.7

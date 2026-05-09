@@ -29,6 +29,9 @@ pub mod runtime;
 pub mod handlers;
 
 #[cfg(target_os = "linux")]
+pub mod keybindings;
+
+#[cfg(target_os = "linux")]
 pub mod wayland;
 
 #[cfg(target_os = "linux")]
