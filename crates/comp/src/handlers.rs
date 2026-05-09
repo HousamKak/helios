@@ -20,6 +20,8 @@
 //! handler code that has to be validated against real client behaviour
 //! all at once.
 
+use smithay::backend::renderer::utils::on_commit_buffer_handler;
+use smithay::desktop::Window;
 use smithay::input::pointer::CursorImageStatus;
 use smithay::input::{Seat, SeatHandler, SeatState};
 use smithay::reexports::wayland_server::Client;
@@ -53,11 +55,16 @@ impl CompositorHandler for WaylandState {
             .compositor_state
     }
 
-    fn commit(&mut self, _surface: &WlSurface) {
-        // Phase 2 month-3: surface state is committed but we don't
-        // have a renderer yet — nothing to redraw. Phase 2 month-4
-        // wires this to the renderer's redraw scheduler so each
-        // commit triggers a frame for the affected output.
+    fn commit(&mut self, surface: &WlSurface) {
+        // Import any newly-attached SHM buffer into a GLES texture.
+        // This is the core handoff: client → wl_shm → SurfaceData →
+        // GlesTexture. The render loop reads back from SurfaceData
+        // when it walks `space.elements()`.
+        on_commit_buffer_handler::<Self>(surface);
+
+        // Refresh space so dead surfaces are pruned and per-output
+        // bookkeeping stays consistent. Cheap; called every commit.
+        self.space.refresh();
     }
 }
 
@@ -144,8 +151,19 @@ impl XdgShellHandler for WaylandState {
         &mut self.xdg_shell_state
     }
 
-    fn new_toplevel(&mut self, _surface: ToplevelSurface) {
-        tracing::info!("xdg: new toplevel surface");
+    fn new_toplevel(&mut self, surface: ToplevelSurface) {
+        // Wrap the toplevel in a `Window` and place it on the space.
+        // m-4 chunk 2 uses fullscreen-centred placement (0, 0) — the
+        // canvas world-to-screen transform from m-1 is wired in
+        // m-5 chunk 5 to honour the active viewport.
+        //
+        // The initial xdg configure is sent by smithay's xdg_shell
+        // automatically when the first commit on an unconfigured
+        // surface arrives — we don't call surface.send_configure
+        // here.
+        let window = Window::new_wayland_window(surface);
+        self.space.map_element(window, (0, 0), true);
+        tracing::info!("xdg: new toplevel surface mapped on space");
     }
 
     fn new_popup(&mut self, _surface: PopupSurface, _positioner: PositionerState) {

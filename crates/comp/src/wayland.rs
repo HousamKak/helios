@@ -16,6 +16,8 @@
 //!   * Subscription to `helios-events` to react to entity changes
 //!   * Periodic `helios-store` queries to refresh the placement cache
 
+use smithay::backend::renderer::damage::OutputDamageTracker;
+use smithay::desktop::{Space, Window};
 use smithay::input::SeatState;
 use smithay::output::{Mode, Output, PhysicalProperties, Scale, Subpixel};
 use smithay::reexports::wayland_server::DisplayHandle;
@@ -61,6 +63,18 @@ pub struct WaylandState {
     /// Held on the state so the global stays alive (dropping the
     /// `Output` un-advertises the global to clients).
     pub output: Output,
+
+    /// Mapped windows, the canonical scenegraph for rendering. Each
+    /// `xdg_toplevel` becomes a `Window` here and is given a position
+    /// via `space.map_element(...)`. The render loop walks
+    /// `space.elements()` each frame.
+    pub space: Space<Window>,
+
+    /// Tracks per-surface damage rectangles between frames. m-4 chunk 2
+    /// uses it via `space::render_output` which always reports damage
+    /// as full-output (age=0). m-4 chunk 3 wires `backend.buffer_age()`
+    /// so idle frames report no damage and skip submission.
+    pub damage_tracker: OutputDamageTracker,
     //   pub data_device_state: smithay::wayland::selection::data_device::DataDeviceState,
     //   pub space: smithay::desktop::Space<smithay::desktop::Window>,
     //   pub renderer: Option<smithay::backend::renderer::gles::GlesRenderer>,
@@ -106,6 +120,13 @@ impl WaylandState {
         );
         output.set_preferred(mode);
 
+        // Bring up the desktop scenegraph and damage tracker. The
+        // single output we just registered is mapped at the world
+        // origin; subsequent windows are placed relative to that.
+        let mut space: Space<Window> = Space::default();
+        space.map_output(&output, (0, 0));
+        let damage_tracker = OutputDamageTracker::from_output(&output);
+
         Self {
             canvas: CanvasState::new(),
             compositor_state: CompositorState::new::<Self>(display_handle),
@@ -113,6 +134,8 @@ impl WaylandState {
             seat_state,
             xdg_shell_state: XdgShellState::new::<Self>(display_handle),
             output,
+            space,
+            damage_tracker,
         }
     }
 }

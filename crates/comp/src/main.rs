@@ -32,13 +32,12 @@ fn main() {
 #[cfg(target_os = "linux")]
 fn main() -> anyhow::Result<()> {
     use smithay::backend::renderer::Color32F;
-    use smithay::backend::renderer::{Frame, Renderer};
     use smithay::backend::winit::WinitEvent;
+    use smithay::desktop::space::render_output;
     use smithay::reexports::calloop::generic::Generic;
     use smithay::reexports::calloop::{EventLoop, Interest, Mode, PostAction};
     use smithay::reexports::wayland_server::Display;
     use smithay::reexports::winit::platform::pump_events::PumpStatus;
-    use smithay::utils::{Rectangle, Transform};
     use smithay::wayland::socket::ListeningSocketSource;
     use std::sync::Arc;
     use std::time::{Duration, Instant};
@@ -157,23 +156,63 @@ fn main() -> anyhow::Result<()> {
             break;
         }
 
-        // 2. Render one frame. Clear to canvas colour, no surfaces
-        //    drawn yet (chunk 2).
-        let size = comp_backend.backend.window_size();
-        let render_res = comp_backend.backend.bind().and_then(|(renderer, mut fb)| {
-            let mut frame = renderer.render(&mut fb, size, Transform::Flipped180)?;
-            frame.clear(canvas_color, &[Rectangle::from_size(size)])?;
-            let _sync = frame.finish()?;
-            Ok(())
-        });
-        match render_res {
-            Ok(()) => {
-                if let Err(err) = comp_backend.backend.submit(None) {
-                    tracing::warn!(?err, "submit failed");
+        // 2. Render one frame. Walk space.elements() via
+        //    space::render_output, which builds RenderElements from
+        //    each Window's surface tree and draws them via the
+        //    OutputDamageTracker. Clear regions damage_tracker
+        //    decides aren't covered by surfaces are filled with the
+        //    canvas colour. Empty space → fully canvas-coloured.
+        //
+        //    age=0 forces a full redraw every frame in chunk 2;
+        //    chunk 3 wires `backend.buffer_age()` so idle frames
+        //    short-circuit.
+        // Render one frame. The bind borrow on backend has to release
+        // before submit(), so the rendering happens in a scope that
+        // returns the damage rectangles by value.
+        let damage_to_submit: Option<
+            Vec<smithay::utils::Rectangle<i32, smithay::utils::Physical>>,
+        > = match comp_backend.backend.bind() {
+            Ok((renderer, mut fb)) => {
+                // No custom render elements yet (no cursor, no
+                // chrome). The C type parameter is inferred from
+                // SolidColorRenderElement, which implements
+                // RenderElement<GlesRenderer>. m-4 chunk 4 adds
+                // a cursor element here.
+                let custom_elements: &[smithay::backend::renderer::element::solid::SolidColorRenderElement] = &[];
+                match render_output(
+                    &state.output,
+                    renderer,
+                    &mut fb,
+                    1.0,
+                    0,
+                    [&state.space],
+                    custom_elements,
+                    &mut state.damage_tracker,
+                    canvas_color,
+                ) {
+                    Ok(result) => result.damage.map(|d| d.to_vec()),
+                    Err(err) => {
+                        tracing::warn!(?err, "render_output failed");
+                        None
+                    }
                 }
             }
             Err(err) => {
-                tracing::warn!(?err, "render failed");
+                tracing::warn!(?err, "bind failed");
+                None
+            }
+        };
+
+        if let Some(damage) = damage_to_submit {
+            if let Err(err) = comp_backend.backend.submit(Some(&damage)) {
+                tracing::warn!(?err, "submit failed");
+            }
+            // Send frame callbacks so clients know it's safe to draw
+            // their next frame.
+            for window in state.space.elements() {
+                window.send_frame(&state.output, Duration::from_millis(0), None, |_, _| {
+                    Some(state.output.clone())
+                });
             }
         }
 
