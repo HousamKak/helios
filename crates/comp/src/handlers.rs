@@ -29,6 +29,7 @@ use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::utils::Serial;
 use smithay::wayland::buffer::BufferHandler;
 use smithay::wayland::compositor::{CompositorClientState, CompositorHandler, CompositorState};
+use smithay::wayland::output::OutputHandler;
 use smithay::wayland::shell::xdg::{
     PopupSurface, PositionerState, ToplevelSurface, XdgShellHandler, XdgShellState,
 };
@@ -167,3 +168,17 @@ impl XdgShellHandler for WaylandState {
 }
 
 smithay::delegate_xdg_shell!(WaylandState);
+
+// ===========================================================================
+// wl_output — output advertisement
+// ===========================================================================
+//
+// The output global is created in WaylandState::new (Output owns its
+// own global lifetime). OutputHandler has only one method,
+// `output_bound`, with a default impl — clients binding wl_output
+// don't require any compositor reaction here. The trait still has
+// to be implemented for the delegate macro's trait bounds.
+
+impl OutputHandler for WaylandState {}
+
+smithay::delegate_output!(WaylandState);

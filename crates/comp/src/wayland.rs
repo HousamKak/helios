@@ -17,8 +17,10 @@
 //!   * Periodic `helios-store` queries to refresh the placement cache
 
 use smithay::input::SeatState;
+use smithay::output::{Mode, Output, PhysicalProperties, Scale, Subpixel};
 use smithay::reexports::wayland_server::DisplayHandle;
 use smithay::reexports::wayland_server::backend::ClientData;
+use smithay::utils::Transform;
 use smithay::wayland::compositor::{CompositorClientState, CompositorState};
 use smithay::wayland::shell::xdg::XdgShellState;
 use smithay::wayland::shm::ShmState;
@@ -52,8 +54,13 @@ pub struct WaylandState {
     /// surface creation to the compositor. Toplevels are real
     /// windows (apps); popups are menus, dropdowns, tooltips.
     pub xdg_shell_state: XdgShellState,
-    // Future fields:
-    //   pub output_state: smithay::wayland::output::OutputState,
+
+    /// The single output advertised to clients. Phase 2 month-3
+    /// fakes one 1920x1080@60 output called "output-0"; real
+    /// multi-output handling lands with the DRM backend in month-5+.
+    /// Held on the state so the global stays alive (dropping the
+    /// `Output` un-advertises the global to clients).
+    pub output: Output,
     //   pub data_device_state: smithay::wayland::selection::data_device::DataDeviceState,
     //   pub space: smithay::desktop::Space<smithay::desktop::Window>,
     //   pub renderer: Option<smithay::backend::renderer::gles::GlesRenderer>,
@@ -72,12 +79,40 @@ impl WaylandState {
         // input loop in month-4.
         let _seat = seat_state.new_wl_seat(display_handle, "seat-0");
 
+        // One fake output, "output-0", 1920x1080 @ 60 Hz. Real
+        // outputs come from the DRM backend (month-5+) or the winit
+        // backend (month-4). The output global is advertised to
+        // clients so they can pick a scale + mode; subsequent
+        // `change_current_state` calls live-update connected clients.
+        let output = Output::new(
+            "output-0".to_string(),
+            PhysicalProperties {
+                size: (340, 190).into(),
+                subpixel: Subpixel::Unknown,
+                make: "heliOS".to_string(),
+                model: "virtual-output".to_string(),
+            },
+        );
+        let mode = Mode {
+            size: (1920, 1080).into(),
+            refresh: 60_000,
+        };
+        let _output_global = output.create_global::<Self>(display_handle);
+        output.change_current_state(
+            Some(mode),
+            Some(Transform::Normal),
+            Some(Scale::Integer(1)),
+            Some((0, 0).into()),
+        );
+        output.set_preferred(mode);
+
         Self {
             canvas: CanvasState::new(),
             compositor_state: CompositorState::new::<Self>(display_handle),
             shm_state: ShmState::new::<Self>(display_handle, Vec::new()),
             seat_state,
             xdg_shell_state: XdgShellState::new::<Self>(display_handle),
+            output,
         }
     }
 }
