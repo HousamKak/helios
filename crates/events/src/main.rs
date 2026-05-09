@@ -82,6 +82,21 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
+    // m-8.1: Unix socket ingress for external publishers (helios-comp,
+    // helios-store, future skills). Same wire format as the
+    // subscriber side, opposite direction. Publisher events feed the
+    // same broadcast channel — subscribers see in-process and
+    // external events on equal footing.
+    let ingress_tx = tx.clone();
+    let ingress_path = helios_events::socket_ingress::socket_path_from_env();
+    tokio::spawn(async move {
+        if let Err(err) =
+            helios_events::socket_ingress::serve_ingress(ingress_path, ingress_tx).await
+        {
+            tracing::error!(?err, "events ingress server crashed");
+        }
+    });
+
     tracing::info!(
         budget_per_sec = helios_events::TARGET_SUSTAINED_EVENTS_PER_SEC,
         sources = "procfs,dbus,journal,network",

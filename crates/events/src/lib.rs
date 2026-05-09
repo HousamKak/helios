@@ -22,6 +22,9 @@ pub use helios_schema::{EventPayload, EventSource, SystemEvent};
 pub mod procfs_source;
 
 #[cfg(target_os = "linux")]
+pub mod socket_ingress;
+
+#[cfg(target_os = "linux")]
 pub mod socket_server;
 
 #[cfg(target_os = "linux")]
@@ -41,6 +44,9 @@ pub const MPSC_FRONT_CAPACITY: usize = 4_096;
 
 /// Default Unix-socket path the bus listens on. Subscribers connect here.
 pub const DEFAULT_SOCKET_PATH: &str = helios_schema::ipc::DEFAULT_EVENTS_SOCKET;
+
+/// Default Unix-socket path the bus listens on for publishers (m-8.1).
+pub const DEFAULT_INGRESS_SOCKET_PATH: &str = helios_schema::ipc::DEFAULT_EVENTS_INGRESS_SOCKET;
 
 /// Default polling interval for the procfs source. Phase 0 quality —
 /// half-second granularity is fine for "see the canvas update when I

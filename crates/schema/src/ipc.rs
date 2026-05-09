@@ -20,6 +20,12 @@ use serde::{Deserialize, Serialize};
 /// Default Unix-socket the events bus listens on for subscribers.
 pub const DEFAULT_EVENTS_SOCKET: &str = "/run/helios/events.sock";
 
+/// Default Unix-socket the events bus listens on for **publishers**
+/// — external services (compositor, store, future skills) writing
+/// events into the shared broadcast channel. Same wire format as
+/// the subscriber socket, opposite direction. m-8.1.
+pub const DEFAULT_EVENTS_INGRESS_SOCKET: &str = "/run/helios/events-ingress.sock";
+
 /// Default Unix-socket the entity store listens on for queries.
 pub const DEFAULT_STORE_SOCKET: &str = "/run/helios/store.sock";
 
