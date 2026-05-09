@@ -48,7 +48,11 @@ smithay = { version = "0.7", default-features = false, features = [
     "desktop",
     "wayland_frontend",
     "backend_winit",
+    "backend_drm",
+    "backend_libinput",
+    "backend_session_libseat",
     "renderer_gl",
+    "renderer_multi",
 ] }
 calloop = "0.14"
 
