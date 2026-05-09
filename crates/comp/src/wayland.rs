@@ -261,16 +261,31 @@ impl WaylandState {
         }
     }
 
-    /// Re-map every window on the space using the current viewport
-    /// transform applied to each window's per-entity world position.
-    /// m-5 chunk 7: each window has an authoritative world position
-    /// in `entity_to_world`; if a window has no entity binding (rare
-    /// race during destroy), it falls back to the world origin.
+    /// Re-map every (non-OR) window on the space using the current
+    /// viewport transform applied to each window's per-entity world
+    /// position. m-5 chunk 7: each window has an authoritative world
+    /// position in `entity_to_world`; if a window has no entity
+    /// binding (rare race during destroy), it falls back to the
+    /// world origin.
+    ///
+    /// m-7.6: X11 override-redirect windows (popups, menus,
+    /// tooltips) live in screen-pixel space, not canvas-world space
+    /// — pan/zoom must NOT move them. Skip them here; their position
+    /// is owned by the X client via `configure_notify`.
     pub fn reapply_viewport_to_windows(&mut self) {
         // Snapshot windows + their world positions so we can mutate
         // the space inside the loop.
         let mut targets: Vec<(Window, (i32, i32))> = Vec::new();
         for window in self.space.elements().cloned().collect::<Vec<_>>() {
+            // Skip override-redirect: their screen-pixel positions
+            // are authoritative.
+            if window
+                .x11_surface()
+                .map(|s| s.is_override_redirect())
+                .unwrap_or(false)
+            {
+                continue;
+            }
             let world = window
                 .wl_surface()
                 .and_then(|s| self.surface_to_entity.get(&s.id()).cloned())

@@ -133,15 +133,53 @@ impl XwmHandler for WaylandState {
     }
 
     fn mapped_override_redirect_window(&mut self, _xwm: XwmId, window: X11Surface) {
-        // m-7.6 will track these in a separate Vec and render them
-        // last, in screen space (not world space). For chunk 7.3 we
-        // just place them on Space at their requested geometry so
-        // they show up at all.
+        // m-7.6: OR-windows are popups, menus, tooltips. Two
+        // architectural rules per ADR 0004:
+        //   1. They render in screen-pixel space, not canvas-world
+        //      space — pan/zoom must NOT move them.
+        //   2. They z-order above everything else on the same screen.
+        //
+        // Implementation: place them on Space at the requested
+        // screen-pixel `geo.loc` (the X client gives us screen
+        // coords, not world coords). Then `raise_element` lifts
+        // them to the top of Space's stacking order.
+        // `reapply_viewport_to_windows` skips OR-popups via
+        // `is_override_redirect()`, so subsequent viewport changes
+        // leave them where the client put them.
         let geo = window.geometry();
         let win = Window::new_x11_window(window);
-        self.space.map_element(win, geo.loc, false);
+        self.space.map_element(win.clone(), geo.loc, false);
+        self.space.raise_element(&win, true);
         self.full_redraw = 4;
-        tracing::debug!(?geo, "x11: override-redirect window mapped");
+        tracing::debug!(?geo, "x11: override-redirect window mapped (screen-fixed)");
+    }
+
+    fn configure_notify(
+        &mut self,
+        _xwm: XwmId,
+        window: X11Surface,
+        geometry: Rectangle<i32, Logical>,
+        _above: Option<smithay::xwayland::xwm::X11Window>,
+    ) {
+        // m-7.6: OR-windows can re-position themselves at any time
+        // (think: menu following the cursor, tooltip moving).
+        // Re-map to the new screen-pixel location so the next render
+        // shows them in the right spot. Non-OR windows ignore
+        // configure_notify here — their positions are canvas-driven
+        // (m-5/m-7), not X-protocol-driven.
+        if !window.is_override_redirect() {
+            return;
+        }
+        let target = self
+            .space
+            .elements()
+            .find(|w| matches!(w.x11_surface(), Some(s) if s == &window))
+            .cloned();
+        if let Some(w) = target {
+            self.space.map_element(w.clone(), geometry.loc, false);
+            self.space.raise_element(&w, true);
+            self.full_redraw = 4;
+        }
     }
 
     fn unmapped_window(&mut self, _xwm: XwmId, window: X11Surface) {
@@ -200,17 +238,6 @@ impl XwmHandler for WaylandState {
         if let Err(err) = window.configure(new_geo) {
             tracing::warn!(?err, "x11: configure failed");
         }
-    }
-
-    fn configure_notify(
-        &mut self,
-        _xwm: XwmId,
-        _window: X11Surface,
-        _geometry: Rectangle<i32, Logical>,
-        _above: Option<smithay::xwayland::xwm::X11Window>,
-    ) {
-        // Notification only — the client confirmed its new geometry.
-        // Render path picks it up on the next frame via Space.
     }
 
     fn resize_request(
