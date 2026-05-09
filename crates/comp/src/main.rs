@@ -54,8 +54,8 @@ fn main() -> anyhow::Result<()> {
     // incrementally across m-6.4..m-6.9 — for now `=drm` returns the
     // NotImplemented error from the scaffold so the dispatch is
     // testable end-to-end.
-    let requested_backend = std::env::var("HELIOS_COMP_BACKEND")
-        .unwrap_or_else(|_| "winit".to_string());
+    let requested_backend =
+        std::env::var("HELIOS_COMP_BACKEND").unwrap_or_else(|_| "winit".to_string());
     tracing::info!(backend = %requested_backend, "backend selected");
     if requested_backend == "drm" {
         let result = helios_comp::backend::drm::DrmBackend::init();
