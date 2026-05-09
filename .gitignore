@@ -11,6 +11,13 @@ mkosi.workspace/
 *.raw
 *.iso
 *.efi
+*.initrd
+*.vmlinuz
+*.zst
+distro/initrd
+distro/initrd.cpio
+distro/helios-boot.raw
+distro/mkosi.skeleton/
 
 # Editors / IDEs
 .vscode/
