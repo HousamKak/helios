@@ -56,7 +56,10 @@ jobs:
               echo "diag image is suspiciously small" >&2
               exit 1
           fi
-          if [ "$size_bytes" -gt $((300 * 1024 * 1024)) ]; then
+          # Diag must include kernel-modules (USB / NVMe / btrfs drivers
+          # live there, no shortcut without breaking boot). Server-side
+          # build produced 452 MB; we cap a bit above that for headroom.
+          if [ "$size_bytes" -gt $((600 * 1024 * 1024)) ]; then
               echo "diag image is suspiciously large — packages bloated?" >&2
               exit 1
           fi
