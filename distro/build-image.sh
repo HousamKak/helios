@@ -48,6 +48,12 @@ ln -sf ../helios-events.service \
 ln -sf ../helios-store.service \
     "$SKEL/usr/lib/systemd/system/multi-user.target.wants/helios-store.service"
 
+# m-2.5.6: enable bluetooth.service so BT keyboards/mice work
+# after boot. Pairing is interactive (`bluetoothctl pair <MAC>`)
+# until we wire a helios_bluetooth_* MCP tool.
+ln -sf /usr/lib/systemd/system/bluetooth.service \
+    "$SKEL/usr/lib/systemd/system/multi-user.target.wants/bluetooth.service"
+
 # ---------------------------------------------------------------------------
 # 3. mkosi build
 # ---------------------------------------------------------------------------
