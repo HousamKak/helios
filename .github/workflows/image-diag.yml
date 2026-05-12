@@ -1,0 +1,73 @@
+name: Image (diag)
+
+# Tiny diagnostic image for bare-metal hardware bringup.
+# Distinct from the production `image.yml` — produces ~80 MB
+# compressed instead of ~1.2 GB. Manually triggered:
+#   gh workflow run image-diag.yml
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build heliOS diag image
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+              python3-pip \
+              python3-cryptography \
+              systemd-container \
+              systemd-ukify \
+              systemd-boot \
+              systemd-boot-efi \
+              dosfstools \
+              e2fsprogs \
+              cryptsetup-bin \
+              mtools \
+              dnf \
+              rpm
+
+      - name: Install mkosi from source
+        run: |
+          git clone --depth 1 https://github.com/systemd/mkosi.git /tmp/mkosi
+          sudo pip install --break-system-packages /tmp/mkosi
+
+      - name: Verify mkosi version
+        run: mkosi --version
+
+      - name: Build diag image
+        run: sudo env "PATH=$PATH" bash distro/diag/build-image.sh
+
+      - name: Verify diag image
+        run: |
+          ls -lh distro/diag/helios-diag.raw* 2>/dev/null
+          file distro/diag/helios-diag.raw.raw.zst
+          size_bytes=$(stat -Lc%s distro/diag/helios-diag.raw.raw.zst)
+          echo "compressed diag image size: $size_bytes bytes"
+          # Diag should be tiny — fail if it's somehow huge (sign of
+          # accidental package bloat) or empty.
+          if [ "$size_bytes" -lt $((10 * 1024 * 1024)) ]; then
+              echo "diag image is suspiciously small" >&2
+              exit 1
+          fi
+          if [ "$size_bytes" -gt $((300 * 1024 * 1024)) ]; then
+              echo "diag image is suspiciously large — packages bloated?" >&2
+              exit 1
+          fi
+
+      - name: Upload diag image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: helios-diag-${{ github.sha }}
+          path: |
+            distro/diag/helios-diag.raw.raw.zst
+            distro/diag/helios-diag.raw.efi
+          retention-days: 7
+          compression-level: 0
+          if-no-files-found: error
