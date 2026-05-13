@@ -71,6 +71,6 @@ jobs:
           path: |
             distro/diag/helios-diag.raw.raw.zst
             distro/diag/helios-diag.raw.efi
-          retention-days: 7
+          retention-days: 1
           compression-level: 0
           if-no-files-found: error

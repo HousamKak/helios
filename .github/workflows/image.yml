@@ -13,6 +13,9 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Build heliOS image
@@ -96,7 +99,41 @@ jobs:
               exit 1
           fi
 
-      - name: Upload image artifact
+      # On tag push: stage files under a release-friendly name and attach
+      # them to a GitHub Release. Releases don't count against the Actions
+      # storage cap, so we no longer fill up storage with 1+ GB images.
+      - name: Stage release assets (tag push only)
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          mkdir -p release-assets
+          cp distro/helios.raw.raw.zst "release-assets/helios-${GITHUB_REF_NAME}.raw.zst"
+          cp distro/helios.raw.efi      "release-assets/helios-${GITHUB_REF_NAME}.efi"
+          cp distro/helios.raw.vmlinuz  "release-assets/helios-${GITHUB_REF_NAME}.vmlinuz"
+          cp distro/helios.raw.initrd   "release-assets/helios-${GITHUB_REF_NAME}.initrd"
+          ls -lh release-assets/
+
+      - name: Publish release (tag push only)
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # `release create` fails if the release already exists; in that
+          # case upload --clobber the assets instead so re-running on the
+          # same tag is idempotent.
+          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" \
+              --title "heliOS $GITHUB_REF_NAME" \
+              --generate-notes \
+              release-assets/*
+          else
+            gh release upload "$GITHUB_REF_NAME" release-assets/* --clobber
+          fi
+
+      # On workflow_dispatch: keep an artifact so the manual run is still
+      # downloadable from the Actions UI — but with 1-day retention so it
+      # auto-expires before another run piles on.
+      - name: Upload image artifact (manual dispatch only)
+        if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
           name: helios-image-${{ github.sha }}
@@ -109,6 +146,6 @@ jobs:
             distro/helios.raw.efi
             distro/helios.raw.vmlinuz
             distro/helios.raw.initrd
-          retention-days: 7
+          retention-days: 1
           compression-level: 0
           if-no-files-found: error
